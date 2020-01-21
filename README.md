@@ -31,6 +31,27 @@ bev  AP:89.90, 87.69, 86.67
 aos  AP:90.45, 88.80, 87.72
 ```
 
+### [Second](examples/second/configs/kitti_all_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py) on KITTI(val) Dataset
+
+```
+car  AP @0.70, 0.70,  0.70:
+bbox AP:90.64, 88.44, 86.94
+bev  AP:89.97, 85.81, 79.66
+3d   AP:86.46, 75.67, 68.61
+aos  AP:90.40, 87.70, 85.81
+
+pedestrian  AP @0.50, 0.50,  0.50:
+bbox AP:61.67, 59.52, 57.21
+bev  AP:64.53, 58.47, 55.77
+3d   AP:58.71, 54.14, 49.39
+aos  AP:55.62, 53.33, 51.09
+
+cyclist  AP @0.50, 0.50,  0.50:
+bbox AP:84.13, 65.67, 63.64
+bev  AP:81.75, 62.05, 59.66
+3d   AP:79.55, 59.31, 57.04
+aos  AP:83.83, 64.47, 62.47
+```
 ### [PointPillars](examples/point_pillars/configs/kitti_point_pillars_mghead_syncbn.py) on KITTI(val) Dataset
 
 ```	
@@ -73,7 +94,7 @@ traffic_cone Nusc dist AP@0.5, 1.0, 2.0, 4.0
 24.37 27.11 31.16 38.27 mean AP: 0.3023
 ```
 
-### [CGBS](examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py) on NuScenes(val) Dataset
+### [CGBS](examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py) on NuScenes(val) Dataset (mAOE has a bug)
 ```
 mAP: 0.4669
 mATE: 0.3391
