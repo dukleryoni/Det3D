@@ -4,8 +4,9 @@ import logging
 from det3d.builder import build_box_coder
 from det3d.utils.config_tool import get_downsample_factor
 
-# norm_cfg = dict(type='SyncBN', eps=1e-3, momentum=0.01)
 norm_cfg = None
+#norm_cfg = dict(type='SyncBN', eps=1e-3, momentum=0.01)
+
 
 tasks = [
     dict(num_class=1, class_names=["car"]),
@@ -309,8 +310,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=16,
-    workers_per_gpu=3,
+    samples_per_gpu=2,
+    workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -364,12 +365,12 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs = 20
-device_ids = range(8)
+total_epochs = 25
+device_ids = range(4)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = ""
 load_from = None
 resume_from = None
-workflow = [("train", 1), ("val", 1)]
+workflow = [("train", 5), ("val", 1)]
 # workflow = [('train', 1)]

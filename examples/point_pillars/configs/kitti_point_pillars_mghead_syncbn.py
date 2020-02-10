@@ -248,7 +248,7 @@ log_config = dict(
 # yapf:enable
 # runtime settings
 total_epochs = 100
-device_ids = range(2)
+device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = "/data/Outputs/det3d_Outputs/Point_Pillars"

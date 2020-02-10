@@ -30,7 +30,7 @@ class KittiDataset(PointCloudDataset):
         super(KittiDataset, self).__init__(
             root_path, info_path, pipeline, test_mode=test_mode
         )
-        assert self._info_path is not None
+        assert self._info_path is not None 
         if not hasattr(self, "_kitti_infos"):
             with open(self._info_path, "rb") as f:
                 infos = pickle.load(f)

@@ -80,6 +80,9 @@ target/
 
 # exclude data from source control by default
 /data/
+/build/
+/det3d/experiments/
+
 
 # Mac OS-specific storage files
 .DS_Store

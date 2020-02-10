@@ -198,3 +198,7 @@ class PointModule(nn.Module):
         x = self.out(x).view(x.shape[0], x.shape[2], 1, 1)
 
         return x
+
+
+
+

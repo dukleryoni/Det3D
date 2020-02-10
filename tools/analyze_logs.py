@@ -83,8 +83,11 @@ def plot_curve(log_dicts, args):
                     ys.append(np.array(log_dict[epoch][metric][: len(iters)]))
                 xs = np.concatenate(xs)
                 ys = np.concatenate(ys)
+                xs = xs[2:]
+                if len(ys.shape) > 1:
+                    ys = ys.mean(axis=-1)
                 plt.xlabel("iter")
-                plt.plot(xs, ys, label=legend[i * num_metrics + j], linewidth=0.5)
+                plt.semilogy(xs, ys, label=legend[i * num_metrics + j], linewidth=0.5)
             plt.legend()
         if args.title is not None:
             plt.title(args.title)

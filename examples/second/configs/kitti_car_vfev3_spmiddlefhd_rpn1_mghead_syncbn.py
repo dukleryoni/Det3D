@@ -188,7 +188,7 @@ val_anno = "data/KITTI/kitti_infos_val.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=6,
+    samples_per_gpu=1,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -236,11 +236,11 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs = 60
+total_epochs =5
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = "experiments/SECOND"
 load_from = None
 resume_from = None
-workflow = [("train", 5), ("val", 1)]
+workflow = [("train", 1), ("val", 1)]

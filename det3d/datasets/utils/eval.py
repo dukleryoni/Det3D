@@ -138,7 +138,7 @@ def calculate_iou_partly(
     return overlaps, parted_overlaps, total_gt_num, total_dt_num
 
 
-#@numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def compute_statistics_jit(
     overlaps,
     gt_datas,

@@ -1,5 +1,4 @@
 import argparse
-
 from det3d.models import build_detector
 from det3d.torchie import Config
 from det3d.utils import get_model_complexity_info
