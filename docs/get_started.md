@@ -1,8 +1,6 @@
 # 3D Detection Get Started
 
-## 1. 激光雷达和点云
-
-关于激光雷达的原理，可以参考下面几篇文章：
+## 1.
 
 * https://zhuanlan.zhihu.com/p/33792450
 * https://pdal.io/workshop/lidar-introduction.html
