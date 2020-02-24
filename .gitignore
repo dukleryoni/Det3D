@@ -114,3 +114,4 @@ train.sh
 *.pyc
 data/*
 experiments/*
+build/*
