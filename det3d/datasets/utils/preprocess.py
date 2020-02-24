@@ -37,7 +37,7 @@ def prcnn_rpn_collate_batch(batch_list):
                     batch_task_gt_boxes3d[i, : len(elems[i][idx]), :] = elems[i][idx]
                 res.append(batch_task_gt_boxes3d)
             ret[key] = res
-        elif key == "metadata":
+        elif key in ["metadata", "grid_size"]:
             ret[key] = elems
         elif key == "calib":
             ret[key] = {}
@@ -79,10 +79,12 @@ type_map = {
     "anchors_mask": torch.uint8,
     "calib": torch.float32,
     "num_voxels": torch.int64,
+    "fsaf_targets": torch.float32,
 }
 
 
 def collate_sequence_batch(batch_list):
+    print('csb')
     example_current_frame_merged = defaultdict(list)
     for example in batch_list:
         for k, v in example["current_frame"].items():
@@ -106,7 +108,7 @@ def collate_sequence_batch(batch_list):
                     batch_task_gt_boxes3d[i, : len(elems[i][idx]), :] = elems[i][idx]
                 res.append(batch_task_gt_boxes3d)
             ret_current_frame[key] = res
-        elif key == "metadata":
+        elif key == ["metadata", "grid_size", "fsaf_targets"]:
             ret_current_frame[key] = elems
         elif key == "calib":
             ret_current_frame[key] = {}
@@ -171,6 +173,7 @@ def collate_sequence_batch(batch_list):
 
 
 def collate_batch(batch_list):
+    print('cb')
     example_merged = defaultdict(list)
     for example in batch_list:
         for k, v in example.items():
@@ -230,6 +233,7 @@ def collate_batch(batch_list):
 
 
 def collate_batch_kitti(batch_list):
+    print('cbk')
     example_merged = defaultdict(list)
     for example in batch_list:
         for k, v in example.items():
@@ -289,6 +293,7 @@ def collate_batch_kitti(batch_list):
 
 
 def collate_batch_torch(batch_list):
+    print('cbt')
     example_merged = defaultdict(list)
     for example in batch_list:
         for k, v in example.items():

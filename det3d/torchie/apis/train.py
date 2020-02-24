@@ -23,7 +23,7 @@ from .env import get_root_logger
 
 def example_convert_to_torch(example, dtype=torch.float32, device=None) -> dict:
     assert device is not None
-
+    print('here')
     example_torch = {}
     float_names = ["voxels", "bev_map"]
     for k, v in example.items():
@@ -41,6 +41,14 @@ def example_convert_to_torch(example, dtype=torch.float32, device=None) -> dict:
             # example_torch[k] = torch.tensor(v,
             #                                 dtype=torch.float32,
             #                                 device=device)
+
+        elif k in ["fsaf_targets"]:
+            # slow when directly provide fp32 data with dtype=torch.half
+            example_torch[k] = [elem.to(device, non_blocking=True) for elem in v]
+            # example_torch[k] = torch.tensor(v,
+            #                                 dtype=torch.float32,
+            #
+
         elif k in ["coordinates", "num_points"]:
             example_torch[k] = v.to(device, non_blocking=True)
             # example_torch[k] = torch.tensor(v,
@@ -81,11 +89,10 @@ def example_convert_to_torch(example, dtype=torch.float32, device=None) -> dict:
 
 def example_to_device(example, device=None, non_blocking=False) -> dict:
     assert device is not None
-
     example_torch = {}
     float_names = ["voxels", "bev_map"]
     for k, v in example.items():
-        if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels"]:
+        if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "fsaf_targets"]:
             example_torch[k] = [res.to(device, non_blocking=non_blocking) for res in v]
         elif k in [
             "voxels",
@@ -96,6 +103,7 @@ def example_to_device(example, device=None, non_blocking=False) -> dict:
             "num_voxels",
         ]:
             example_torch[k] = v.to(device, non_blocking=non_blocking)
+
         elif k == "calib":
             calib = {}
             for k1, v1 in v.items():

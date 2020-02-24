@@ -32,6 +32,7 @@ class RPN(nn.Module):
         norm_cfg=None,
         name="rpn",
         logger=None,
+        ohs=None,
         **kwargs
     ):
         super(RPN, self).__init__()
@@ -74,6 +75,7 @@ class RPN(nn.Module):
                 layer_num,
                 stride=self._layer_strides[i],
             )
+
             blocks.append(block)
             if i - self._upsample_start_idx >= 0:
                 stride = (self._upsample_strides[i - self._upsample_start_idx])

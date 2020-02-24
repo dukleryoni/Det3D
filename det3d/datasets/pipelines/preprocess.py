@@ -336,6 +336,9 @@ class AssignTarget(object):
         self.target_assigners = target_assigners
         self.out_size_factor = assigner_cfg.out_size_factor
         self.anchor_area_threshold = target_assigner_config.pos_area_threshold
+        self.ohs = False
+        if "ohs" in assigner_cfg:
+            self.ohs = assigner_cfg.ohs
 
     def __call__(self, res, info):
 
@@ -456,6 +459,12 @@ class AssignTarget(object):
                     gt_names=gt_dict["gt_names"][idx],
                 )
                 targets_dicts.append(targets_dict)
+
+
+            if self.ohs:
+               # print('fsaf_ohs')
+                example["fsaf_targets"]=(np.concatenate([gt_dict["gt_boxes"],np.expand_dims(gt_dict["gt_classes"],-1)], -1)).astype("float32")
+              #  example["grid_size"] = grid_size
 
             example.update(
                 {

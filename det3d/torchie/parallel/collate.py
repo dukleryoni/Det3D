@@ -115,8 +115,10 @@ def collate_kitti(batch_list, samples_per_gpu=1):
                     batch_task_gt_boxes3d[i, : len(elems[i][idx]), :] = elems[i][idx]
                 res.append(batch_task_gt_boxes3d)
             ret[key] = res
-        elif key == "metadata":
+        elif key in ["metadata"]:
             ret[key] = elems
+        elif key in ["fsaf_targets"]:
+            ret[key] =[torch.tensor(elem) for elem in elems]
         elif key == "calib":
             ret[key] = {}
             for elem in elems:

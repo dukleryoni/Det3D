@@ -56,7 +56,7 @@ class NuScenesDataset(PointCloudDataset):
         self._name_mapping = general_to_detection
 
         self.version = "v1.0-trainval"
-        self.eval_version = "cvpr_2019"
+        self.eval_version = "cvpr_2019" #"detection_cvpr_2019"
 
     def reset(self):
         self.logger.info(f"re-sample {self.frac} frames from full set")
@@ -68,7 +68,7 @@ class NuScenesDataset(PointCloudDataset):
         with open(self._info_path, "rb") as f:
             _nusc_infos_all = pickle.load(f)
 
-        if not True:  # if training
+        if not self.test_mode:  # if training
             self.frac = int(len(_nusc_infos_all) * 0.25)
 
             _cls_infos = {name: [] for name in self._class_names}

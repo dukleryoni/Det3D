@@ -30,8 +30,11 @@ def example_to_device(
             for k1, v1 in v.items():
                 calib[k1] = v1.cuda(device, non_blocking=non_blocking)
             example_torch[k] = calib
+        elif k == "fsaf_targets":
+            example_torch[k] = [elem.cuda(device, non_blocking=non_blocking) for elem in v] # if v is not None added if statement in list comprehension
         else:
             example_torch[k] = v
+
 
     return example_torch
 

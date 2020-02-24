@@ -4,7 +4,6 @@ warnings.filterwarnings("ignore")
 import json
 import os
 import sys
-sys.path.append('/home/claire.chen/work/Det3D')
 import pdb
 import numpy as np
 import torch

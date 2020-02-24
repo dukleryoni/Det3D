@@ -69,7 +69,7 @@ class TextLoggerHook(LoggerHook):
         trainer.logger.info(log_str)
 
         if trainer.world_size > 1:
-            class_names = trainer.model.module.bbox_head.class_names
+            class_names = trainer.model.module.module.bbox_head.class_names
         else:
             class_names = trainer.model.bbox_head.class_names
 

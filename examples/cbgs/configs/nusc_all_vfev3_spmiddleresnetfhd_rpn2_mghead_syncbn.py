@@ -310,8 +310,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=2,
-    workers_per_gpu=2,
+    samples_per_gpu=1,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -365,12 +365,12 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs = 25
-device_ids = range(4)
+total_epochs = 2
+device_ids = range(1)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = ""
 load_from = None
 resume_from = None
-workflow = [("train", 5), ("val", 1)]
+workflow = [("train", 0), ("val", 1)]
 # workflow = [('train', 1)]

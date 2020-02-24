@@ -21,6 +21,10 @@ class Reformat(object):
         voxels = res["lidar"]["voxels"]
         anchors = res["lidar"]["targets"]["anchors"]
 
+        fsaf_targets = None
+        if "fsaf_targets" in res["lidar"]["targets"]:  # maybe change to something with more info
+            fsaf_targets = res["lidar"]["targets"]["fsaf_targets"]
+
         data_bundle = dict(
             metadata=meta,
             points=points,
@@ -52,9 +56,14 @@ class Reformat(object):
             if ground_plane:
                 data_bundle["ground_plane"] = ground_plane
 
-            data_bundle.update(
-                dict(labels=labels, reg_targets=reg_targets, reg_weights=reg_weights,)
-            )
+            if fsaf_targets is not None:
+                data_bundle.update(
+                    dict(labels=labels, reg_targets=reg_targets, reg_weights=reg_weights, fsaf_targets=fsaf_targets)
+                )
+            else:
+                data_bundle.update(
+                    dict(labels=labels, reg_targets=reg_targets, reg_weights=reg_weights)
+                )
 
         return data_bundle, info
 

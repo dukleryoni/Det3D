@@ -100,6 +100,8 @@ assigner = dict(
     target_assigner=target_assigner,
     out_size_factor=get_downsample_factor(model),
     debug=False,
+    ohs=False,  # Added OHS
+
 )
 
 
@@ -215,8 +217,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=1,
+    samples_per_gpu=4,
+    workers_per_gpu=4,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -276,4 +278,4 @@ log_level = "INFO"
 work_dir = "experiments/SECOND"
 load_from = None
 resume_from = None
-workflow = [("train", 1), ("val", 1)]
+workflow = [("train", 0), ("val", 1)]

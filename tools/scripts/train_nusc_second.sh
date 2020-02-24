@@ -17,12 +17,14 @@ then
 fi
 
 # Voxelnet
-python -m torch.distributed.launch ./tools/train.py examples/second/configs/nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+
+python -m torch.distributed.launch --nproc_per_node=8 ./tools/train.py examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+#python -m torch.distributed.launch --nproc_per_node=4 ./tools/train.py examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py --work_dir=$NUSC_SECOND
+
 # python -m torch.distributed.launch --nproc_per_node=8 ./tools/train.py examples/second/configs/lyft_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py --work_dir=$LYFT_CBGS_WORK_DIR
 
 # python -m torch.distributed.launch --nproc_per_node=1 ./tools/train.py examples/point_pillars/configs/nusc_all_point_pillars_mghead_syncbn.py --work_dir=$NUSC_CBGS_WORK_DIR
 # PointPillars
 # python -m torch.distributed.launch --nproc_per_node=8 ./tools/train.py ./examples/point_pillars/configs/original_pp_mghead_syncbn_kitti.py --work_dir=$PP_WORK_DIR
-
-
-#  --nproc_per_node=4
+# --nproc_per_node=4
+# ohs_local_

@@ -11,11 +11,12 @@ class VoxelNet(SingleStageDetector):
         backbone,
         neck,
         bbox_head,
+        loss=None,
         train_cfg=None,
         test_cfg=None,
         pretrained=None,
     ):
-        super(VoxelNet, self).__init__(
+        super().__init__(
             reader, backbone, neck, bbox_head, train_cfg, test_cfg, pretrained
         )
 
@@ -33,7 +34,6 @@ class VoxelNet(SingleStageDetector):
         coordinates = example["coordinates"]
         num_points_in_voxel = example["num_points"]
         num_voxels = example["num_voxels"]
-
         batch_size = len(num_voxels)
 
         data = dict(

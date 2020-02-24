@@ -22,6 +22,7 @@ from det3d.torchie.apis import (
     train_detector,
 )
 
+sys.path.insert(0, '/home/iamge/ohs/Det3D')
 
 
 
@@ -47,7 +48,7 @@ parser.add_argument(
     default="none",
     help="job launcher",
 )
-parser.add_argument("--local_rank", type=int, default=0)
+parser.add_argument("--local_rank", type=int, default=3)
 parser.add_argument(
     "--autoscale-lr",
     action="store_true",
@@ -56,11 +57,20 @@ parser.add_argument(
 
 
 
-args = parser.parse_args("a --work_dir experiments/nusc_second --local_rank 1".split())
-args.config="examples/second/configs/local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
+args = parser.parse_args("a  --gpus=1 --work_dir experiments/nusc_second".split())
+# args.config="examples/second/configs/local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
+args.config="examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
+#args.config="examples/second/configs/nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 
-if "LOCAL_RANK" not in os.environ:
-    os.environ["LOCAL_RANK"] = str(args.local_rank)
+
+
+# Torch Distributed Variables
+os.environ["MASTER_ADDR"] = "127.0.0.1"
+os.environ["MASTER_PORT"] = "29500"
+os.environ["LOCAL_RANK"] = "0"
+os.environ["RANK"] = "0"
+os.environ["WORLD_SIZE"] = "0"
+
 
 cfg = Config.fromfile(args.config)
 cfg.local_rank = args.local_rank
@@ -72,12 +82,14 @@ if args.resume_from is not None:
     cfg.resume_from = args.resume_from
 
 distributed = False
-if "WORLD_SIZE" in os.environ:
-    distributed = int(os.environ["WORLD_SIZE"]) > 1
 
 if distributed:
     torch.cuda.set_device(args.local_rank)
-    torch.distributed.init_process_group(backend="nccl", init_method="env://")
+    print('stuck')
+    torch.distributed.init_process_group(backend="nccl",
+                       init_method="env://")
+    print('passed')
+
 
     cfg.gpus = torch.distributed.get_world_size()
 

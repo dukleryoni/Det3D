@@ -200,5 +200,5 @@ def crop2assign(
             pdb.set_trace()
 
     batch_data["shape"] = fixed_size
-
+    print("was here")
     return batch_data

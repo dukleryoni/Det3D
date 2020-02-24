@@ -17,6 +17,8 @@ from .losses import (
     BootstrappedSigmoidClassificationLoss,
 )
 
+from .fsaf_loss import RefineMultiBoxFSAFLoss
+
 __all__ = [
     "BalancedL1Loss",
     "CrossEntropyLoss",
@@ -31,4 +33,5 @@ __all__ = [
     "SoftmaxFocalClassificationLoss",
     "WeightedSoftmaxClassificationLoss",
     "BootstrappedSigmoidClassificationLoss",
+    "RefineMultiBoxFSAFLoss",
 ]

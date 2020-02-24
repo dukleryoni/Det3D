@@ -1,5 +1,6 @@
 import numba
 import numpy as np
+import torch
 
 
 @numba.njit
@@ -346,6 +347,32 @@ def points_in_convex_polygon(points, polygon, clockwise=True):
     # [num_points, num_polygon, num_points_of_polygon, 2]
     cross = np.cross(vec1, vec2)
     return np.all(cross > 0, axis=2)
+
+
+def points_in_convex_polygon_torch(points, polygon, clockwise=True):
+    """check points is in convex polygons. may run 2x faster when write in
+    cython(don't need to calculate all cross-product between edge and point)
+    Args:
+        points: [num_points, 2] array.
+        polygon: [num_polygon, num_points_of_polygon, 2] array.
+        clockwise: bool. indicate polygon is clockwise.
+    Returns:
+        [num_points, num_polygon] bool array.
+    """
+    # first convert polygon to directed lines
+    num_lines = polygon.shape[1]
+    polygon_next = polygon[:, [num_lines - 1] + list(range(num_lines - 1)), :]
+    if clockwise:
+        vec1 = (polygon - polygon_next)
+    else:
+        vec1 = (polygon_next - polygon)
+    vec1 = vec1.unsqueeze(0)
+    vec2 = polygon.unsqueeze(0) - points.unsqueeze(1).unsqueeze(1)
+    vec2 = vec2[..., [1, 0]]
+    vec2[..., 1] *= -1
+    cross = (vec1 * vec2).sum(-1)
+
+    return torch.all(cross > 0, dim=2)
 
 
 @numba.njit

@@ -16,6 +16,7 @@ class SingleStageDetector(BaseDetector):
         train_cfg=None,
         test_cfg=None,
         pretrained=None,
+        # ohs=None,
     ):
         super(SingleStageDetector, self).__init__()
         self.reader = builder.build_reader(reader)
