@@ -266,3 +266,142 @@ def generate_points(featmap_size, pc_range, device='cuda', dtype=torch.float32):
     shift_zz = torch.ones(shift_xx.shape, device=device) * 0.5 * (pc_range[2]+pc_range[5])
     points = torch.stack((shift_xx, shift_yy, shift_zz), dim=-1)
     return points
+
+#
+# def center_to_corner_box2d(center, dims, cos, sin):
+#     boxes_bev = center.new(torch.Size((center.shape[0], 4, 2)))
+#     half_l, half_w = dims[:, 0] / 2, dims[:, 1] / 2
+#     boxes_bev[:, 0, 0], boxes_bev[:, 0, 1] = -half_l, -half_w
+#     boxes_bev[:, 1, 0], boxes_bev[:, 1, 1] = -half_l, half_w
+#     boxes_bev[:, 2, 0], boxes_bev[:, 2, 1] = half_l, half_w
+#     boxes_bev[:, 3, 0], boxes_bev[:, 3, 1] = half_l, -half_w
+#     rot_mat_T = torch.stack(
+#           [tstack([cos, -sin]),
+#            tstack([sin, cos])])
+#     return torch.einsum('aij, jka->aik', (boxes_bev, rot_mat_T)) + center.unsqueeze(1)
+#
+#
+#
+# def 3D_points_in_gt_box_torch(points, gt_bboxes, clockwise=True):
+#     """check points is in convex polygons. may run 2x faster when write in
+#     cython(don't need to calculate all cross-product between edge and point)
+#     Args:
+#         points: [num_points, 2] array.
+#         polygon: [num_polygon, num_points_of_polygon, 2] array.
+#         clockwise: bool. indicate polygon is clockwise.
+#     Returns:
+#         [num_points, num_polygon] bool array.
+#     """
+#     gt_centers = gt_bboxes[...,:3]
+#     gt_dims = gt_bboxes[...,3:6]
+#     gt_yaw = gt_bboxes[...,-1]
+#     centered_points = points.unsqueeze(1) - gt_centers.unsqueeze(0)
+#     cos, sin = torch.cos(gt_yaw), torch.sin(gt_yaw)
+#
+#     rot_mat_T = torch.stack(
+#     [tstack([cos, -sin]),
+#     tstack([sin, cos])])
+#     centered_points[..., :2] = torch.einsum('aij, jka->aik', (centered_points[..., :2], rot_mat_T))
+#     correct_idx = torch.all(torch.abs(centered_points) < gt_dims) # fix the dimension
+#     correct_points = hh[correct_idx], ww[correct_idx]
+#     data_idx = data in correct_points
+#
+#     # first convert polygon to directed lines
+#     num_lines = polygon.shape[1]
+#     polygon_next = polygon[:, [num_lines - 1] + list(range(num_lines - 1)), :]
+#     if clockwise:
+#         vec1 = (polygon - polygon_next)
+#     else:
+#         vec1 = (polygon_next - polygon)
+#     vec1 = vec1.unsqueeze(0)
+#     vec2 = polygon.unsqueeze(0) - points.unsqueeze(1).unsqueeze(1)
+#     vec2 = vec2[..., [1, 0]]
+#     vec2[..., 1] *= -1
+#     cross = (vec1 * vec2).sum(-1)
+#
+#     return torch.all(cross > 0, dim=2)
+
+def coor_batch(coors):
+    '''
+
+    Args:
+        coors: LongTensor describing the list of coordinates of non-empty voxels. Each coordinates is of the form (batch_location,l,w,h)
+
+    Returns:
+        List of coordinate tensors seperated by batch
+    '''
+    unique_elems = torch.unique(coors[:,0])
+    masks = [coors[:,0] == elem for elem in unique_elems]
+    return [coors[mask] for mask in masks]
+
+
+def get_gt_masks(data,range):
+    '''
+
+    Args:
+        data: includes ground truth targets, coordinates, and things like input features shape
+        range: the point cloud range
+
+    Returns:
+        A mask for the coordinates tensor that selects the voxels that contain the ground truth
+
+    '''
+    pc_range = torch.FloatTensor(range)
+    voxel_dims = pc_range[3:] - pc_range[:3]
+    voxel_dims /= torch.FloatTensor(data["input_shape"])  # fix for specifics
+
+    coors = data["coors"] # will have the first coordinate to donate element of which batch
+    voxel_dims = voxel_dims.to(coors.device)
+    coors_batch = coor_batch(coors)
+    batch_gt_masks = []
+    for i, coor in enumerate(coors_batch):
+        gt_boxes = data["fsaf_targets"][i][..., :-1]  # Drop class label
+        gt_boxes = gt_boxes.squeeze(0)
+        gt_centers = gt_boxes[..., :3]
+        gt_dims = gt_boxes[..., 3:6]
+        gt_yaw = gt_boxes[..., -1]
+        zyx_points = coor[...,1:].type(torch.float)
+        points = 0.5 + zyx_points[...,[2,1,0]] # Flip into xyz points, center voxels by 0.5
+        points = points * voxel_dims + pc_range[:3].to(coor.device)
+
+        vec = points.unsqueeze(1) - gt_centers.unsqueeze(0)
+
+        yaw_mtx = lambda yaw: torch.FloatTensor([[torch.cos(yaw), torch.sin(yaw)], [torch.sin(yaw), -torch.cos(yaw)]]).to(yaw.device)
+
+        yaw_mtx_list = [yaw_mtx(yaw) for yaw in gt_yaw]
+        rot_mtxs = torch.stack(yaw_mtx_list, dim=0)
+
+        rotated_pts = torch.einsum('ijk,jlk-> ijl', vec[..., :2], rot_mtxs)
+        # print(rot_mtxs.shape, vec.shape, rotated_pts.shape)
+        effective = 1.5 # TODO Can also add an effective gt_box parameter
+        vec[..., :2] = rotated_pts
+        mask_all_gt = (abs(vec) < effective * (gt_dims + 2*voxel_dims)/2.0).all(dim=-1)  # Added gt_dims + voxel_dims to include any voxel that has an overlap with the box
+        mask_all_gt = torch.transpose(mask_all_gt, -2, -1) # TODO Understand why this results in empty gt voxels sometimes, possible: rotation is opposite
+        batch_gt_masks.append(mask_all_gt)
+        #coors_gt_list = [coors[mask] for mask in mask_all_gt]
+
+    return batch_gt_masks
+
+
+def get_gt_dropout(drop_rate, features, coors, masks):
+    batch_coors = coor_batch(coors)
+    batch_gt_masks = masks
+
+    all_masks = []
+    for j, coor in enumerate(batch_coors):
+        dropout_mask = torch.bernoulli(drop_rate * torch.ones(len(coor))).type(torch.bool).to(coor.device)
+        coor_mask = batch_gt_masks[j][0]
+        for mask in batch_gt_masks[j]:
+            coor_mask+= mask
+        coor_mask = coor_mask*dropout_mask
+        # print(len(coor_mask), sum(coor_mask.long()))
+        keep_mask = ~ coor_mask
+        all_masks.append(keep_mask)
+
+    device = all_masks[0].device
+    all_masks = [mask.to(device) for mask in all_masks]
+    gt_dropout_mask = torch.cat(all_masks)
+    return gt_dropout_mask
+
+
+

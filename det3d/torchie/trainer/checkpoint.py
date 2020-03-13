@@ -47,9 +47,12 @@ def load_state_dict(module, state_dict, strict=False, logger=None):
 
     own_state = module.state_dict()
     for name, param in state_dict.items():
-        if name not in own_state:
+        if ("module."+ name not in own_state) and (name not in own_state): # added safe gaurds for parsing these
             unexpected_keys.append(name)
             continue
+        if name not in own_state:
+            name = "module." + name
+
         if isinstance(param, torch.nn.Parameter):
             # backwards compatibility for serialized parameters
             param = param.data

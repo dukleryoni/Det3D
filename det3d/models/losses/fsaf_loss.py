@@ -7,6 +7,7 @@ from functools import partial
 from det3d.ops.iou3d.iou3d_utils import boxes_iou3d_gpu
 import time
 from torch import stack as tstack
+import pdb
 
 
 def one_hot(tensor, depth, dim=-1, on_value=1.0, dtype=torch.float32):
@@ -89,13 +90,34 @@ class RefineMultiBoxFSAFLoss(nn.Module):
         self.cls_out_channels = num_classes-1
         self.pc_range = np.array(pc_range, dtype=np.float32)
         self.dims = self.pc_range[3:]-self.pc_range[:3]
-        if self.cfg.rot_type == 'cos_sin':
-            self.loss_box = WeightedSmoothL1Loss(3.0, [5.0, 5.0, 7.0, 3.0, 3.0, 5.0, 5.0, 5.0])
-        if self.cfg.rot_type == 'softbin':
-            self.loss_box = WeightedSmoothL1Loss(3.0, [5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 5.0])
-        if self.cfg.rot_type == 'softbin_cos_sin':
-            self.loss_box = WeightedSmoothL1Loss(3.0, [5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 5.0, 5.0, 5.0])
-        self.loss_ang_vector = WeightedL2LocalizationLoss(5.0)
+        self.vel_branch = cfg.vel_branch
+        self.code_weights = cfg.code_weights
+
+
+        # vel_branch= True # ToDO add vel_branch to config - look at how it is being done for KITTI vs NuScenes
+        if self.vel_branch:
+
+            code_w_len= {'cos_sin':10, 'softbin':9, 'softbin_cos_sin': 10}
+            assert (self.code_weights is None) or (len(self.code_weights) == code_w_len[self.cfg.rot_type]), "code_weights need to be of size {}".format(
+                code_w_len[self.cfg.rot_type])
+
+            if self.cfg.rot_type == 'cos_sin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=self.code_weights)  # Changed to include velocities they are of weight 1.0 # [5.0, 5.0, 7.0, 3.0, 3.0, 5.0, 1.0, 1.0, 5.0, 5.0]
+            if self.cfg.rot_type == 'softbin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=self.code_weights) # [5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 1.0, 1.0, 5.0]
+            if self.cfg.rot_type == 'softbin_cos_sin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=self.code_weights) # [5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 5.0, 1.0, 1.0, 5.0, 5.0]
+            self.loss_ang_vector = WeightedL2LocalizationLoss(5.0)
+
+        else:
+            print("using default code weights for fsaf_loss")
+            if self.cfg.rot_type == 'cos_sin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=self.code_weights)  # Need to change to include velocities: original weights: [5.0, 5.0, 7.0, 3.0, 3.0, 5.0, 5.0, 5.0]
+            if self.cfg.rot_type == 'softbin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=[5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 5.0])
+            if self.cfg.rot_type == 'softbin_cos_sin':
+                self.loss_box = WeightedSmoothL1Loss(code_weights=[5.0, 5.0, 5.0, 3.0, 3.0, 5.0, 5.0, 5.0, 5.0])
+            self.loss_ang_vector = WeightedL2LocalizationLoss(5.0)
 
         self.loss_cls = SigmoidFocalLoss(2.0, 0.25) # hard coded
         if self.cfg.centerness:
@@ -205,6 +227,7 @@ class RefineMultiBoxFSAFLoss(nn.Module):
         return torch.sum(weight * loc_losses) / avg_factor
 
     def select_iou_loss_part_regression(self, pred_tensor, target_tensor, weight, avg_factor=None):
+        print("should not appear since we are not using iou")
         pred = pred_tensor.clone()
         target = target_tensor.clone().detach()
         pred[:, 3:6] = torch.exp(pred[:, 3:6])
@@ -277,6 +300,8 @@ class RefineMultiBoxFSAFLoss(nn.Module):
             # gt_bboxes.append(targets[idx][:, :-1].data)
             # gt_labels.append(targets[idx][:, -1].data.long())
         input_loss = fsaf_data + (gt_bboxes, gt_labels)
+        # import pdb
+        # pdb.set_trace()
         fsaf_loss = self.loss(*input_loss, occupancy, gt_bboxes_ignore=None)
         self.step += 1
         return fsaf_loss
@@ -337,7 +362,14 @@ class RefineMultiBoxFSAFLoss(nn.Module):
             loss_box += self.loss_box(bbox_pred, bbox_targets,  weights=(2 * torch.exp(-torch.sqrt(vol))).reshape(-1)).sum()/bbox_pred.size(0)
             '''
         else:
-            loss_box += self.cfg.smoothl1_loss_weight *  self.loss_box(bbox_pred, bbox_targets,  weights=torch.ones(len(bbox_pred), device=bbox_pred.device)).sum()/bbox_pred.size(0)
+            my_weight = torch.FloatTensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0])
+            my_weight.to(bbox_pred.device)
+            my_weight = torch.ones(len(bbox_pred), device=bbox_pred.device)
+
+            # Take care of NaNs in bbox_target
+            bbox_targets[torch.isnan(bbox_targets)] = bbox_pred[torch.isnan(bbox_targets)].clone().detach()
+
+            loss_box += self.cfg.smoothl1_loss_weight *  self.loss_box(bbox_pred, bbox_targets,  weights=my_weight).sum()/bbox_pred.size(0)
         if self.use_iou_branch:
             true_iou, _ = self.iou3d(bbox_pred, bbox_targets)
             '''
@@ -425,8 +457,11 @@ class RefineMultiBoxFSAFLoss(nn.Module):
             _labels = torch.zeros_like(cls_score_list[lvl][0], dtype=torch.long)
             _label_weights = torch.zeros_like(cls_score_list[lvl][0], dtype=torch.float)
             _label_weights[:valid_h, :valid_w] = 1.
-            _bbox_targets = bbox_pred_list[lvl].new_zeros((0, bbox_pred_list[0].size(0)), dtype=torch.float)
-            _bbox_locs = bbox_pred_list[lvl].new_zeros((0, 3), dtype=torch.long)
+
+            # Added velocity changed bbox_targets from 8 to 10
+            _bbox_targets = torch.zeros((0, 10), device=device, dtype=torch.float) # bbox_pred_list[lvl].new_zeros((0, bbox_pred_list[0].size(0)), dtype=torch.float)
+            _bbox_locs = torch.zeros((0, 3), device=device, dtype=torch.long) # bbox_pred_list[lvl].new_zeros((0, 3), dtype=torch.long)
+
             if self.use_iou_branch:
                 _gt_iou_weights = torch.zeros_like(cls_score_list[lvl][0], dtype=torch.float)
                 _gt_iou_weights[:valid_h, :valid_w] = 1.
@@ -442,7 +477,7 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                 _part_labels = bbox_pred_list[lvl].new_zeros((0, 2), dtype=torch.float)
             if len(inds) > 0:
                 boxes = gt_bboxes[inds, :]
-                classes = gt_labels[inds]
+                classes = (gt_labels[inds]).type(torch.long)
                 if self.cfg.use_border:
                     ignore_boxes_in = boxes[:, [0,1,3,4]].clone().detach()
                     ignore_boxes_in[:, 2:4] *= self.cfg.s1
@@ -494,8 +529,10 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                 for i in range(len(inds)):
                     locs_x = []
                     locs_y = []
-
                     pos_mask = points_in_convex_polygon_torch(torch.stack([ww+0.5, hh+0.5], 1), effective_boxes[i].unsqueeze(0))
+                    # CHANGE this is just to see what is causing the problem
+                    # pos_mask = torch.zeros_like(ww,dtype=torch.bool).unsqueeze(-1)
+                    # pos_mask[1000] = True
 
                     if self.cfg.use_border:
                         print("border")
@@ -523,7 +560,14 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                         # print(pos_mask.is_cuda, occupancy.is_cuda)
                         occupancy = occupancy.view(pos_mask.shape).type(pos_mask.dtype)
                         pos_mask &= occupancy
+
                     pos_ind = pos_mask.nonzero()[:, 0]
+                    # pos_hh, pos_ww = hh_l[[1000]], ww_l[[1000]]
+                    # _labels[pos_hh, pos_ww] = classes[i]
+                    # _label_weights[pos_hh, pos_ww] = 1.0
+                    # locs_x.append(pos_ww)
+                    # locs_y.append(pos_hh)
+
                     pos_hh, pos_ww = hh_l[pos_ind], ww_l[pos_ind]
                     _labels[pos_hh, pos_ww] = classes[i]
                     _label_weights[pos_hh, pos_ww] = 1.0
@@ -531,12 +575,12 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                     locs_y.append(pos_hh)
 
 
-                    ig_mask = points_in_convex_polygon_torch(torch.stack([ww+0.5, hh+0.5], 1), ignore_boxes_out[i].unsqueeze(0))
-
-                    ig_mask = ig_mask & (~pos_mask)
-                    ig_ind = ig_mask.nonzero()[:, 0]
-                    ig_h, ig_w = hh_l[ig_ind], ww_l[ig_ind]
-                    _label_weights[ig_h, ig_w] = 0
+                    # ig_mask = points_in_convex_polygon_torch(torch.stack([ww+0.5, hh+0.5], 1), ignore_boxes_out[i].unsqueeze(0))
+                    #
+                    # ig_mask = ig_mask & (~pos_mask)
+                    # ig_ind = ig_mask.nonzero()[:, 0]
+                    # ig_h, ig_w = hh_l[ig_ind], ww_l[ig_ind]
+                    # _label_weights[ig_h, ig_w] = 0
 
                     locs_x = torch.cat(locs_x, 0).view(-1)
                     locs_y = torch.cat(locs_y, 0).view(-1)
@@ -545,6 +589,9 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                     shift_yy = locs_y.float().reshape(-1) + 0.5
                     shifts=torch.zeros(shift_xx.shape+(bbox_pred_list[0].size(0),), device=device, dtype=torch.float)
                     centers = torch.stack((shift_xx/w*self.dims[0]+self.pc_range[0], shift_yy/h*self.dims[1]+self.pc_range[1]), -1)
+
+                    # import pdb
+                    # pdb.set_trace()
 
                     if self.cfg.loc_type == 'part':
                         mat_rot_t = torch.tensor([[torch.cos(boxes[i, -1]), torch.sin(boxes[i, -1])],
@@ -562,13 +609,14 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                     #shifts[:, 2] = (boxes[i, 2] - self.pc_range[2])/self.dims[2]
                     #shifts[:, 2] = (boxes[i, 2] - 0.5 * (self.pc_range[2]+self.pc_range[5]))/2
                     if self.cfg.rot_type == 'cos_sin':
-                        shifts[:, 6] = torch.cos(boxes[i, -1])
-                        shifts[:, 7] = torch.sin(boxes[i, -1])
+                        shifts[:,-4:-2] = boxes[i, -3: -1]  # Adding velocity
+                        shifts[:, -2] = torch.cos(boxes[i, -1])
+                        shifts[:, -1] = torch.sin(boxes[i, -1])
                     else:
-                        shifts[:, 6:] = boxes[i, 6:]
+                        shifts[:, 6:] = boxes[i, 6:] # will also add velocity
                     if self.cfg.rot_type == 'softbin_cos_sin':
-                        shifts[:, 7] = torch.cos(boxes[i, -1])
-                        shifts[:, 8] = torch.sin(boxes[i, -1])
+                        shifts[:, -2] = torch.cos(boxes[i, -1])
+                        shifts[:, -1] = torch.sin(boxes[i, -1])  # was there so I am not changing, seems flipped
                     if self.cfg.dim_type == 'log':
                         shifts[:, 3:6] = torch.log(boxes[i, 3:6])
                     else:
@@ -626,11 +674,14 @@ class RefineMultiBoxFSAFLoss(nn.Module):
                         parts[:, 0] = parts[:, 0]/boxes[i, 3]
                         parts[:, 1] = parts[:, 1]/boxes[i, 4]
                         _part_labels = torch.cat((_part_labels, parts), dim=0)
-                    _bbox_targets = torch.cat((_bbox_targets, shifts), dim=0)
-                    zeros = torch.zeros_like(locs_x)
 
+
+
+                    zeros = torch.zeros_like(locs_x)
+                    _bbox_targets = torch.cat((_bbox_targets, shifts), dim=0)
                     locs = torch.stack((zeros, locs_y, locs_x), dim=-1)
                     _bbox_locs = torch.cat((_bbox_locs, locs), dim=0)
+
                     if self.use_iou_branch:
                         mask_iou = points_in_convex_polygon_torch(np.concatenate([ww+0.5, hh+0.5], 1), ignore_boxes_iou[i].unsqueeze(0))
                         # ig_ind_iou = mask_iou.nonzero()[:, 0]

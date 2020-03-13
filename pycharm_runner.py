@@ -59,21 +59,24 @@ parser.add_argument(
 
 args = parser.parse_args("a  --gpus=1 --work_dir experiments/nusc_second".split())
 # args.config="examples/second/configs/local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
-args.config="examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
+#args.config="examples/second/configs/all_ohs_local_nusc_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 #args.config="examples/second/configs/nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 
+args.config="examples/second/configs/hpc_ohs_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 
+#args.config="examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py"
 
 # Torch Distributed Variables
 os.environ["MASTER_ADDR"] = "127.0.0.1"
 os.environ["MASTER_PORT"] = "29500"
 os.environ["LOCAL_RANK"] = "0"
 os.environ["RANK"] = "0"
-os.environ["WORLD_SIZE"] = "0"
+os.environ["WORLD_SIZE"] = "1"
 
 
 cfg = Config.fromfile(args.config)
 cfg.local_rank = args.local_rank
+
 
 # update configs according to CLI args
 if args.work_dir is not None:
@@ -82,6 +85,8 @@ if args.resume_from is not None:
     cfg.resume_from = args.resume_from
 
 distributed = False
+if "WORLD_SIZE" in os.environ:
+    distributed = int(os.environ["WORLD_SIZE"]) > 1
 
 if distributed:
     torch.cuda.set_device(args.local_rank)
@@ -89,9 +94,8 @@ if distributed:
     torch.distributed.init_process_group(backend="nccl",
                        init_method="env://")
     print('passed')
-
-
     cfg.gpus = torch.distributed.get_world_size()
+
 
 if args.autoscale_lr:
     cfg.lr_config.lr_max = cfg.lr_config.lr_max * cfg.gpus

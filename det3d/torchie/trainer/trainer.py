@@ -474,6 +474,11 @@ class Trainer(object):
         for k, v in result_dict["results"].items():
             self.logger.info(f"Evaluation {k}: {v}")
 
+
+        # dict_for_buffer = result_dict["details"]
+        self.log_buffer.update(result_dict["tb_log"])
+        print(result_dict["tb_log"])
+
         self.call_hook("after_val_epoch")
 
     def resume(self, checkpoint, resume_optimizer=True, map_location="default"):

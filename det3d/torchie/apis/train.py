@@ -308,13 +308,13 @@ def train_detector(model, dataset, cfg, distributed=False, validate=False, logge
         model = apex.parallel.convert_syncbn_model(model)
         model = apex.parallel.DistributedDataParallel(model.cuda())
 
-        model = DistributedDataParallel(
-            model.cuda(cfg.local_rank),
-            device_ids=[cfg.local_rank],
-            output_device=cfg.local_rank,
-            # broadcast_buffers=False,
-            find_unused_parameters=True,
-        )
+        # model = DistributedDataParallel(
+        #     model.cuda(cfg.local_rank),
+        #     device_ids=[cfg.local_rank],
+        #     output_device=cfg.local_rank,
+        #     # broadcast_buffers=False,
+        #     find_unused_parameters=True,
+        # )
 
     else:
         model = model.cuda()

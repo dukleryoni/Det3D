@@ -7,7 +7,7 @@ from .base import LoggerHook
 
 
 class TensorboardLoggerHook(LoggerHook):
-    def __init__(self, log_dir=None, interval=10, ignore_last=True, reset_flag=True):
+    def __init__(self, log_dir=None, interval=10, ignore_last=True, reset_flag=False):
         super(TensorboardLoggerHook, self).__init__(interval, ignore_last, reset_flag)
         self.log_dir = log_dir
 
@@ -44,9 +44,15 @@ class TensorboardLoggerHook(LoggerHook):
             if isinstance(record, str):
                 self.writer.add_text(tag, record, trainer.iter)
             else:
-                self.writer.add_scalar(
-                    tag, trainer.log_buffer.output[var], trainer.iter
-                )
+                # print(tag, trainer.log_buffer.output[var], trainer.iter)
+                if isinstance(trainer.log_buffer.output[var], (list,tuple)):
+                    if len(trainer.log_buffer.output[var]) >0:
+                        if isinstance(trainer.log_buffer.output[var][0], list):
+                            continue
+                        else:
+                            self.writer.add_scalar(tag, trainer.log_buffer.output[var][0], trainer.iter)
+                else:
+                    self.writer.add_scalar(tag, trainer.log_buffer.output[var], trainer.iter)
 
     @master_only
     def after_run(self, trainer):

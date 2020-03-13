@@ -17,7 +17,15 @@ then
 fi
 
 # Voxelnet
-CUDA_VISIBLE_DEVICES=1,2,3 python -m torch.distributed.launch  --nproc_per_node=3 ./tools/train.py examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+#CUDA_VISIBLE_DEVICES=1,2,3 python -m torch.distributed.launch  --nproc_per_node=3 ./tools/train.py examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+#CUDA_VISIBLE_DEVICES=0 python ./tools/train.py examples/second/configs/ohs_local_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+#CUDA_VISIBLE_DEVICES=1,2,3 python -m torch.distributed.launch  --nproc_per_node=3 ./tools/train.py examples/second/configs/all_ohs_local_nusc_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
+CUDA_VISIBLE_DEVICES=1,2,3 python -m torch.distributed.launch  --nproc_per_node=1 ./tools/train.py examples/second/configs/hpc_ohs_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND #--resume_from="experiments/hpc_experiments/baselines/ohs_again/epoch_12.pth"
+
+
+
+
+
 # python -m torch.distributed.launch --nproc_per_node=8 ./tools/train.py examples/second/configs/lyft_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py --work_dir=$LYFT_CBGS_WORK_DIR
 
 # python -m torch.distributed.launch --nproc_per_node=1 ./tools/train.py examples/point_pillars/configs/nusc_all_point_pillars_mghead_syncbn.py --work_dir=$NUSC_CBGS_WORK_DIR

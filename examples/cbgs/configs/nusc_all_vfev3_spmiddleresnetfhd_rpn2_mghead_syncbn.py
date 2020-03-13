@@ -137,7 +137,7 @@ box_coder = dict(
 
 # model settings
 model = dict(
-    type="VoxelNet",
+    type="VoxelNet_OHS",
     pretrained=None,
     reader=dict(
         type="VoxelFeatureExtractorV3",
@@ -310,8 +310,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=1,
+    samples_per_gpu=6,
+    workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -360,17 +360,17 @@ log_config = dict(
     interval=5,
     hooks=[
         dict(type="TextLoggerHook"),
-        # dict(type='TensorboardLoggerHook')
+        dict(type='TensorboardLoggerHook')
     ],
 )
 # yapf:enable
 # runtime settings
-total_epochs = 2
-device_ids = range(1)
+total_epochs = 14
+device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = ""
 load_from = None
 resume_from = None
-workflow = [("train", 0), ("val", 1)]
+workflow = [("train", 1), ("val", 1)]
 # workflow = [('train', 1)]

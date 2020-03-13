@@ -288,21 +288,32 @@ class NuScenesDataset(PointCloudDataset):
 
             detail = {}
             result = f"Nusc {version} Evaluation\n"
+            tb_log = {}
             for name in mapped_class_names:
                 detail[name] = {}
                 for k, v in metrics["label_aps"][name].items():
                     detail[name][f"dist@{k}"] = v
-                threshs = ", ".join(list(metrics["label_aps"][name].keys()))
                 scores = list(metrics["label_aps"][name].values())
                 mean = sum(scores) / len(scores)
+
+                tb_log[name + " mean AP"] = mean
+                dists = ['0.5', '1.0', '2.0', '4.0']
+                for score, dist in zip(scores, dists):
+                    tb_log[name + " " + dist + " dist AP"] = score
+
+                threshs = ", ".join(list(metrics["label_aps"][name].keys()))
                 scores = ", ".join([f"{s * 100:.2f}" for s in scores])
                 result += f"{name} Nusc dist AP@{threshs}\n"
                 result += scores
                 result += f" mean AP: {mean}"
                 result += "\n"
+
+
+
             res_nusc = {
                 "results": {"nusc": result},
                 "detail": {"nusc": detail},
+                "tb_log": tb_log
             }
         else:
             res_nusc = None
@@ -311,6 +322,7 @@ class NuScenesDataset(PointCloudDataset):
             res = {
                 "results": {"nusc": res_nusc["results"]["nusc"],},
                 "detail": {"eval.nusc": res_nusc["detail"]["nusc"],},
+                "tb_log": tb_log,
             }
         else:
             res = None

@@ -9,6 +9,7 @@ norm_cfg = None
 
 tasks = [
     dict(num_class=1, class_names=["car"],),
+  #  dict(num_class=2, class_names=["pedestrian", "traffic_cone"]),
 ]
 
 class_names = list(itertools.chain(*[t["class_names"] for t in tasks]))
@@ -27,6 +28,28 @@ target_assigner = dict(
             unmatched_threshold=0.45,
             class_name="car",
         ),
+
+        # dict(
+        #     type="anchor_generator_range",
+        #     sizes=[0.67, 0.73, 1.77],
+        #     anchor_ranges=[-50.4, -50.4, -0.935, 50.4, 50.4, -0.935],
+        #     rotations=[0, 1.57],
+        #     velocities=[0, 0],
+        #     matched_threshold=0.6,
+        #     unmatched_threshold=0.4,
+        #     class_name="pedestrian",
+        # ),
+        # dict(
+        #     type="anchor_generator_range",
+        #     sizes=[0.41, 0.41, 1.07],
+        #     anchor_ranges=[-50.4, -50.4, -1.285, 50.4, 50.4, -1.285],
+        #     rotations=[0, 1.57],
+        #     velocities=[0, 0],
+        #     matched_threshold=0.6,
+        #     unmatched_threshold=0.4,
+        #     class_name="traffic_cone",
+        # ),
+
     ],
     sample_positive_fraction=-1,
     sample_size=512,
@@ -119,6 +142,9 @@ model = dict(
                 refinement=None,
                 range=[-50.4, -50.4, -5.0, 50.4, 50.4, 3.0],
                 tasks=tasks,
+                vel_branch=False,  # Added velocity branch
+                #ToDo make a whole loss sub_dict
+                code_weights=[1.0]*6 +[0.0]*2 +[1.0]*2, # [5.0, 5.0, 7.0, 3.0, 3.0, 5.0, 0.0, 0.0, 5.0, 5.0], # This includes velocity in positions -4, -3.
             ),
         ),
     ),
@@ -153,24 +179,24 @@ model = dict(
             ),
             direction_offset=0.785, # For direction classifier?
         ),
-
-    loss=dict(
-        classification_loss=dict(
-            weighted_sigmoid_focal=dict(
-                alpha=0.25,
-                gamma=2.0,
-                anchorwise_ouput=True,
-            ),
-        ),
-        localization_loss=dict(
-            weighted_smooth_l1=dict(
-            sigma=3.0,
-            code_weight=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-            ),
-        ),
-        classification_weight=1.0,
-        localization_weight=2.0,
-    ),
+    # # Not used
+    # loss=dict(
+    #     classification_loss=dict(
+    #         weighted_sigmoid_focal=dict(
+    #             alpha=0.25,
+    #             gamma=2.0,
+    #             anchorwise_ouput=True,
+    #         ),
+    #     ),
+    #     localization_loss=dict(
+    #         weighted_smooth_l1=dict(
+    #         sigma=3.0,
+    #         code_weight=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    #         ),
+    #     ),
+    #     classification_weight=1.0,
+    #     localization_weight=2.0,
+    # ),
 )
 
 assigner = dict(
@@ -265,7 +291,7 @@ voxel_generator = dict(
     # max_points_in_voxel=5,
     # max_voxel_num=20000,
     range=[-50.4, -50.4, -5.0, 50.4, 50.4, 3.0],
-    voxel_size=[0.1, 0.1, 0.2], # TODO change back, this is just for testing
+    voxel_size=[0.1, 0.1, 0.2],
     max_points_in_voxel=10,
     max_voxel_num=60000,
 )
@@ -295,8 +321,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=1,
+    samples_per_gpu=6,
+    workers_per_gpu=4,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -349,11 +375,11 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs =15
-device_ids = range(3)
+total_epochs =36
+device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = "experiments/SECOND"
 load_from = None
 resume_from = None
-workflow = [("train", 0), ("val", 1)]
+workflow = [("train", 1), ("val", 1)]

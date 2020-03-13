@@ -50,6 +50,13 @@ def parse_args():
         action="store_true",
         help="automatically scale lr with the number of gpus",
     )
+
+
+    ### voxel_drop
+    parser.add_argument("--voxel_drop", action='store_true')
+    parser.add_argument("--gt_drop", action='store_true')
+    parser.add_argument("--drop_pct", type=int, default=10, help="input dropout pct")
+
     args = parser.parse_args()
     if "LOCAL_RANK" not in os.environ:
         os.environ["LOCAL_RANK"] = str(args.local_rank)
@@ -59,15 +66,33 @@ def parse_args():
 
 def main():
 
-    # torch.manual_seed(0)
-    # torch.backends.cudnn.deterministic = True
+    torch.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
-    # np.random.seed(0)
+    np.random.seed(0)
 
     args = parse_args()
 
+
     cfg = Config.fromfile(args.config)
     cfg.local_rank = args.local_rank
+
+    # voxel_drop
+    cfg.train_cfg.drop_rate = args.drop_pct / 100.
+
+    cfg.train_cfg.general_voxel_drop = False
+    cfg.train_cfg.gt_drop = False
+
+    if args.voxel_drop:
+        print("Using general voxel drop with drop rate", cfg.train_cfg.drop_rate)
+        cfg.train_cfg.general_voxel_drop= True
+
+    if args.gt_drop:
+        print("Using ground truth voxel drop with drop rate", cfg.train_cfg.drop_rate)
+        cfg.train_cfg.gt_drop= True
+
+
+
 
     # update configs according to CLI args
     if args.work_dir is not None:

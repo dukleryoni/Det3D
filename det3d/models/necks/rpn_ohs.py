@@ -189,7 +189,7 @@ class RPNBase(RPNNoHeadBase):
 
         super(RPNBase, self).__init__(
             use_norm=use_norm,
-            num_class=num_class,
+            num_class=num_class, # change
             layer_nums=layer_nums,
             layer_strides=layer_strides,
             num_filters=num_filters,
@@ -238,14 +238,18 @@ class RPNBase(RPNNoHeadBase):
         self.fsaf = fsaf
         self.fsaf_cfg = fsaf_cfg
         self.use_iou_branch = use_iou_branch
+        self.vel_branch = False
 
         if ohs is not None:
             self.ohs = ohs
             self.fsaf = ohs.fsaf
             self.fsaf_cfg = ohs.fsaf_module
             self.use_iou_branch = ohs.use_iou_branch
-            self.num_class = len(ohs.tasks)
-
+            self.tasks = ohs.tasks
+            self.num_class = len(self.tasks)
+            self.vel_branch = self.ohs.fsaf_module.vel_branch # Adding velocity
+            if self.vel_branch:
+                print("using velocity branch:", self.vel_branch)
         self._num_class = self.num_class
 
 
@@ -329,6 +333,12 @@ class RPNBase(RPNNoHeadBase):
                 self.new_fsaf_h = nn.Conv2d(final_num_filters, 1, kernel_size=1)
             self.new_fsaf_dim = nn.Conv2d(final_num_filters, 3, kernel_size=1)
             self.new_fsaf_cls = nn.Conv2d(final_num_filters, self._num_class, 1)
+
+            ## Adding Velocity branch ##
+            if self.vel_branch:
+                self.new_fsaf_vel = nn.Conv2d(final_num_filters, 2, kernel_size=1)
+
+
             if self.use_iou_branch:
                 if self.fsaf_cfg.rot_type == 'cos_sin':
                     box_code_num = 8
@@ -398,7 +408,13 @@ class RPNBase(RPNNoHeadBase):
             loc = F.softmax(loc, dim=2)
             loc = loc * self.loc_bins.to(x.device)
             loc = torch.sum(loc, dim=2, keepdim=False)
-        bbox_pred = torch.cat([loc, h, dim, rot], 1)
+
+        if self.vel_branch:
+            vel = self.new_fsaf_vel(x)
+        else:
+            vel = torch.zeros_like(loc)
+
+        bbox_pred = torch.cat([loc, h, dim, vel, rot], 1) # Added vel branch
         if self.use_iou_branch:
             iou_pred = self.new_fsaf_iou_branch(torch.cat([x, bbox_pred], 1))
         else:
