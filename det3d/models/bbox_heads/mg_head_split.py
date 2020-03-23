@@ -12,6 +12,11 @@ from det3d.torchie.trainer import load_checkpoint
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.modules.batchnorm import _BatchNorm
+from det3d.models.utils import change_default_args
+from det3d.models.utils import Empty, GroupNorm, Sequential
+from det3d.models.losses.fsaf_loss import RefineMultiBoxFSAFLoss # added to incorporate the loss
+
+
 
 from .. import builder
 from ..losses import accuracy
@@ -192,194 +197,270 @@ class LossNormType(Enum):
 
 
 @HEADS.register_module
-class Head(nn.Module):
-    def __init__(
-        self,
-        num_input,
-        num_pred,
-        num_cls,
-        use_dir=False,
-        num_dir=0,
-        header=True,
-        name="",
-        focal_loss_init=False,
-        **kwargs,
-    ):
-        super(Head, self).__init__(**kwargs)
-        self.use_dir = use_dir
+class HeadOHS_SPLIT(nn.Module):
 
-        self.conv_box = nn.Conv2d(num_input, num_pred, 1)
-        self.conv_cls = nn.Conv2d(num_input, num_cls, 1)
+    def __init__(self,
+                 mode="3d",
+                 norm_cfg=None,
+                 tasks=[],
+                 weights=[],
+                 num_classes=[1,],
+                 box_coder=None,
+                 with_cls=True,
+                 with_reg=True,
+                 reg_class_agnostic=False,
+                 loss_norm=dict(
+                     type="NormByNumPositives", pos_class_weight=1.0, neg_class_weight=1.0,
+                 ),
+                 loss_cls=dict(type="CrossEntropyLoss", use_sigmoid=False, loss_weight=1.0, ),
+                 use_sigmoid_score=True,
+                 loss_bbox=dict(type="SmoothL1Loss", beta=1.0, loss_weight=1.0, ),
+                 encode_rad_error_by_sin=True,
+                 loss_aux=None,
+                 direction_offset=0.0,
+                 ohs=None,
+                 in_channels=128,
+                 num_anchor_per_loc=2,
+                 encode_background_as_zeros=True,
+                 use_direction_classifier=True,
+                 num_direction_bins=2,
+                 name='rpn',
+                 fsaf=0,
+                 logger=None,
+                 fsaf_cfg=None,
+                 use_iou_branch=False):
 
-        if self.use_dir:
-            self.conv_dir = nn.Conv2d(num_input, num_dir, 1)
+        super(HeadOHS_SPLIT, self).__init__()
+        self.in_channels = in_channels
+        self.num_anchor_per_loc = num_anchor_per_loc
+        self.num_direction_bins = num_direction_bins
+        self.use_direction_classifier = use_direction_classifier or (loss_aux is not None) #ToDo make config better
+        self.use_sigmoid_score = use_sigmoid_score
+        self.direction_offset =direction_offset
+        self.encode_background_as_zeros = encode_background_as_zeros
 
-    def forward(self, x):
-        ret_list = []
-        box_preds = self.conv_box(x).permute(0, 2, 3, 1).contiguous()
-        cls_preds = self.conv_cls(x).permute(0, 2, 3, 1).contiguous()
-        ret_dict = {"box_preds": box_preds, "cls_preds": cls_preds}
-        if self.use_dir:
-            dir_preds = self.conv_dir(x).permute(0, 2, 3, 1).contiguous()
-            ret_dict["dir_cls_preds"] = dir_preds
+        self.fsaf = fsaf
+        self.fsaf_cfg = fsaf_cfg
+        self.use_iou_branch = use_iou_branch
+        self.vel_branch = False
 
-        return ret_dict
+        if ohs is not None:
+            self.ohs = ohs
+            self.fsaf = ohs.fsaf
+            self.fsaf_cfg = ohs.fsaf_module
+            self.use_iou_branch = ohs.use_iou_branch
+            self.tasks = ohs.tasks
+            # self.num_class = len(self.tasks) # ToDo implement this correctly so that we can extend to multiclass
+            self.vel_branch = self.ohs.fsaf_module.vel_branch # Adding velocity
+            if self.vel_branch:
+                print("using velocity branch:", self.vel_branch)
 
 
-@HEADS.register_module
-class RegHead(nn.Module):
-    def __init__(
-        self,
-        mode="z",
-        in_channels=sum([128,]),
-        norm_cfg=None,
-        tasks=None,
-        name="rpn",
-        logger=None,
-        **kwargs,
-    ):
-        super(RegHead, self).__init__()
+        num_classes = [len(t["class_names"]) for t in self.tasks]
+        self.class_names = [t["class_names"] for t in self.tasks] # change this number since
+        self.num_class = num_classes[0] # ToDO make it with the same format as CBGS
 
-        num_classes = [len(t["class_names"]) for t in tasks]
-        self.class_names = [t["class_names"] for t in tasks]
+        self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class + 1,
+                                                pc_range=self.fsaf_cfg.range,
+                                                encode_background_as_zeros=self.encode_background_as_zeros,
+                                                use_iou_branch=self.use_iou_branch)
 
-        if norm_cfg is None:
-            norm_cfg = dict(type="BN", eps=1e-3, momentum=0.01)
-        self._norm_cfg = norm_cfg
 
-        num_preds = []
-        for idx, num_class in enumerate(num_classes):
-            num_preds.append(2)  # h, z, gp
 
-        self.tasks = nn.ModuleList()
-        num_input = in_channels
-        for task_id, num_pred in enumerate(num_preds):
-            conv_box = nn.Conv2d(num_input, num_pred, 1)
-            self.tasks.append(conv_box)
 
-        self.crop_cfg = kwargs.get("crop_cfg", None)
-        self.z_mode = kwargs.get("z_type", "top")
-        self.iou_loss = kwargs.get("iou_loss", False)
+        if encode_background_as_zeros:
+            num_cls = num_anchor_per_loc * self.num_class
+        else:
+            num_cls = num_anchor_per_loc * (self.num_class + 1)
+        # if len(num_upsample_filters) == 0:
+        #     final_num_filters = self._num_out_filters
+        # else:
+        #     final_num_filters = sum(num_upsample_filters)
+        final_num_filters = self.in_channels
 
-    def forward(self, x):
+        if self.fsaf > 0:
+            assert self.fsaf_cfg.loc_type in ['center', 'part',
+                                              'center_softbin'], "loc_type must be one of [center, part, center_softbin]"
+            assert self.fsaf_cfg.rot_type in ['direct', 'softbin', 'cos_sin',
+                                              'softbin_cos_sin'], "rot_type must be one of [direct, softbin, cos_sin, softbin_cos_sin]"
+            assert self.fsaf_cfg.dim_type in ['norm', 'log'], "dim_type must be one of [norm, log]"
+            assert self.fsaf_cfg.h_loc_type in ['direct', 'norm', 'standard', 'softbin',
+                                                'bottom_softbin'], "h_loc_type must be one of [direct, norm, standard, softbin]"
 
-        ret_dicts = []
-        for task in self.tasks:
-            out = task(x)
-            out = F.max_pool2d(out, kernel_size=out.size()[2:])
-            ret_dicts.append(out.permute(0, 2, 3, 1).contiguous())
-
-        return ret_dicts
-
-    def loss(self, example, preds, **kwargs):
-        batch_size_dev = example["targets"].shape[0]
-        rets = []
-        for task_id, task_pred in enumerate(preds):
-            zg = example["targets"][:, 2:3]
-            hg = example["targets"][:, 3:4]
-            gg = example["targets"][:, 4:5]
-            gp = example["ground_plane"].view(-1, 1)
-
-            zt = task_pred[:, :, :, 0:1].view(-1, 1)
-            ht = task_pred[:, :, :, 1:2].view(-1, 1)
-
-            height_loss = smooth_l1_loss(ht, hg, 3.0) / batch_size_dev
-
-            height_a = self.crop_cfg.anchor.height
-            z_center_a = self.crop_cfg.anchor.center
-
-            if self.z_mode == "top":
-                z_top_a = z_center_a + height_a / 2
-                gt = z_top_a + zt - (height_a + ht) - gp
-                z_loss = smooth_l1_loss(zt, zg, 3.0) / batch_size_dev
-                # IoU Loss
-                yg_top, yg_down = zg + z_top_a, zg + z_top_a - (hg + height_a)
-                yp_top, yp_down = zt + z_top_a, zt + z_top_a - (ht + height_a)
-            elif self.z_mode == "center":
-                gt = z_center_a + zt - (height_a + ht) / 2.0 - gp
-                z_loss = smooth_l1_loss(zt, zg, 3.0) / batch_size_dev
-                # IoU Loss
-                yg_top, yg_down = (
-                    zg + z_center_a + (hg + height_a) / 2.0,
-                    zg + z_center_a - (hg + height_a) / 2.0,
-                )
-                yp_top, yp_down = (
-                    zt + z_center_a + (ht + height_a) / 2.0,
-                    zt + z_center_a - (ht + height_a) / 2.0,
-                )
-
-            gp_loss = smooth_l1_loss(gt, gg, 3.0) / batch_size_dev
-
-            h_intersect = torch.min(yp_top, yg_top) - torch.max(yp_down, yg_down)
-            iou = h_intersect / (hg + height_a + ht + height_a - h_intersect)
-            iou[iou < 0] = 0.0
-            iou[iou > 1] = 1.0
-            iou_loss = (1 - iou).sum() / batch_size_dev
-
-            ret = dict(
-                loss=z_loss + height_loss + gp_loss,
-                z_loss=z_loss,
-                height_loss=height_loss,
-                gp_loss=gp_loss,
+            BatchNorm2d = change_default_args(eps=1e-3, momentum=0.01)(nn.BatchNorm2d)
+            self.new_fsaf_reg_conv = nn.Sequential(
+                nn.Conv2d(final_num_filters, final_num_filters, kernel_size=3, padding=1),
+                # DeformConv2d(final_num_filters, final_num_filters, 3, padding=1, modulation=True),
+                BatchNorm2d(final_num_filters),
+                nn.ReLU(),
             )
 
-            if self.iou_loss:
-                ret["loss"] += iou_loss
-                ret.update(dict(iou_loss=iou_loss,))
-            rets.append(ret)
-        """convert batch-key to key-batch
-        """
-        rets_merged = defaultdict(list)
-        for ret in rets:
-            for k, v in ret.items():
-                rets_merged[k].append(v)
+            loc_num_filters = final_num_filters
 
-        return rets_merged
+            if self.fsaf_cfg.rot_type == 'direct':
+                self.new_fsaf_rot = nn.Conv2d(final_num_filters, 1, kernel_size=1)
+            if 'softbin' in self.fsaf_cfg.rot_type:
+                self.rot_bins = torch.linspace(-np.pi, np.pi, self.fsaf_cfg.rot_bin_num).reshape(1,
+                                                                                                 self.fsaf_cfg.rot_bin_num,
+                                                                                                 1, 1)
+                self.new_fsaf_rot = nn.Sequential(
+                    nn.Conv2d(final_num_filters, self.fsaf_cfg.rot_bin_num, kernel_size=1),
+                    nn.Softmax(dim=1),
+                )
 
-    def predict(self, example, preds, stage_one_outputs):
-        rets = []
-        for task_id, task_pred in enumerate(preds):
-            if self.z_mode == "top":
-                height_a = self.crop_cfg.anchor.height
-                z_top_a = self.crop_cfg.anchor.center + height_a / 2
-                # z top
-                task_pred[:, :, :, 1] += height_a
-                task_pred[:, :, :, 0] += z_top_a - task_pred[:, :, :, 1] / 2.0
-            elif self.z_mode == "center":
-                height_a = self.crop_cfg.anchor.height
-                z_center_a = self.crop_cfg.anchor.center
-                # regress h and z
-                task_pred[:, :, :, 0] += z_center_a
-                task_pred[:, :, :, 1] += height_a
+            if self.fsaf_cfg.rot_type == 'cos_sin':
+                self.new_fsaf_rot = nn.Sequential(
+                    nn.Conv2d(final_num_filters, 2, kernel_size=1),
+                )
 
-            rets.append(task_pred.view(-1, 2))
+            if self.fsaf_cfg.rot_type == 'softbin_cos_sin':
+                self.new_fsaf_cos_sin = nn.Conv2d(final_num_filters, 2, kernel_size=1)
+            if self.fsaf_cfg.loc_type == 'center':
+                self.new_fsaf_loc = nn.Conv2d(loc_num_filters, 2, kernel_size=1)
+            elif self.fsaf_cfg.loc_type == 'center_softbin':
+                self.loc_bins = torch.linspace(-self.fsaf_cfg.center_range, self.fsaf_cfg.center_range,
+                                               self.fsaf_cfg.center_bin_num).reshape(1, 1, -1, 1, 1)
+                self.new_fsaf_loc = nn.Sequential(
+                    # nn.Conv2d(loc_num_filters, 2 * self.fsaf_cfg.center_bin_num, kernel_size=1),
+                    nn.Conv2d(loc_num_filters, loc_num_filters // 2, kernel_size=1),
+                    BatchNorm2d(loc_num_filters // 2),
+                    nn.ReLU(),
+                    nn.Conv2d(loc_num_filters // 2, 2 * self.fsaf_cfg.center_bin_num, kernel_size=1),
+                    # nn.Softmax(dim=1),
+                )
+            else:
+                self.new_fsaf_loc = nn.Sequential(
+                    nn.Conv2d(loc_num_filters, 2, kernel_size=1),
+                    nn.Sigmoid(),
+                )
+            if self.fsaf_cfg.centerness:
+                self.fsaf_cfg.part_classification = False
+                self.new_fsaf_centerness = nn.Conv2d(final_num_filters, 2, kernel_size=1)
+            if 'softbin' in self.fsaf_cfg.h_loc_type:
+                self.h_loc_bins = torch.linspace(-3, 1, self.fsaf_cfg.h_bin_num).reshape(1, self.fsaf_cfg.h_bin_num, 1,
+                                                                                         1)
+                self.new_fsaf_h = nn.Sequential(
+                    nn.Conv2d(final_num_filters, self.fsaf_cfg.h_bin_num, kernel_size=1),
+                    nn.Softmax(dim=1),
+                )
+            else:
+                self.new_fsaf_h = nn.Conv2d(final_num_filters, 1, kernel_size=1)
+            self.new_fsaf_dim = nn.Conv2d(final_num_filters, 3, kernel_size=1)
+            self.new_fsaf_cls = nn.Conv2d(final_num_filters, self.num_class, 1)
 
-        # Merge branches results
-        num_tasks = len(rets)
-        ret_list = []
-        # len(rets) == task num
-        # len(rets[0]) == batch_size
-        num_preds = len(rets)
-        num_samples = len(rets[0])
+            ## Adding Velocity branch ##
+            if self.vel_branch:
+                self.new_fsaf_vel = nn.Conv2d(final_num_filters, 2, kernel_size=1)
 
-        ret_list = []
-        for i in range(num_samples):
-            ret = torch.cat(rets)
-            ret_list.append(ret)
 
-        cnt = 0
-        for idx, sample in enumerate(stage_one_outputs):
-            for box in sample["box3d_lidar"]:
-                box[2] = ret_list[0][cnt, 0]
-                box[5] = ret_list[0][cnt, 1]
 
-                cnt += 1
+            if self.fsaf_cfg.part_classification:
+                if self.fsaf_cfg.part_type in ['up_down', 'left_right']:
+                    part_num = 2
+                elif self.fsaf_cfg.part_type == 'quadrant':
+                    part_num = 4
+                else:
+                    part_num = 8
+                self.new_fsaf_part_branch = nn.Sequential(
+                    nn.Conv2d(final_num_filters, part_num, 1),
+                    nn.Sigmoid(),
+                )
 
-        return stage_one_outputs
+            if use_direction_classifier:
+                self.conv_dir_cls = nn.Conv2d(final_num_filters, self.num_anchor_per_loc * num_direction_bins, 1)
+
+    def fsaf_forward(self, x):
+        x = self.new_fsaf_reg_conv(x)
+        cls_score = self.new_fsaf_cls(x)
+        # x = torch.cat([x, occupation], 1)
+        rot = self.new_fsaf_rot(x)
+        if 'softbin' in self.fsaf_cfg.rot_type:
+            rot = rot * self.rot_bins.to(x.device)
+            rot = torch.sum(rot, dim=1, keepdim=True)
+        if self.fsaf_cfg.rot_type == 'cos_sin':
+            rot = F.normalize(rot, p=2, dim=1)
+        # if self.fsaf_cfg.rot_type == 'softbin_cos_sin':
+        #     cos_sin = self.new_fsaf_cos_sin(x)
+        #     cos_sin = F.normalize(cos_sin, p=2, dim=1)
+        #     rot = torch.cat([rot, cos_sin], 1)
+        dim = self.new_fsaf_dim(x)
+        if not self.fsaf_cfg.dim_type == 'log':
+            dim = F.relu(dim)
+        if self.fsaf_cfg.part_classification:
+            part = self.new_fsaf_part_branch(x)
+        elif self.fsaf_cfg.centerness:
+            part = self.new_fsaf_centerness(x)
+        else:
+            part = None
+        h = self.new_fsaf_h(x)
+        if 'softbin' in self.fsaf_cfg.h_loc_type:
+            h = h * self.h_loc_bins.to(x.device)
+            h = torch.sum(h, dim=1, keepdim=True)
+        loc = self.new_fsaf_loc(x)
+        if self.fsaf_cfg.loc_type == 'center_softbin':
+            loc = loc.view((loc.shape[0], 2, self.fsaf_cfg.center_bin_num, loc.shape[2], loc.shape[3]))
+            loc = F.softmax(loc, dim=2)
+            loc = loc * self.loc_bins.to(x.device)
+            loc = torch.sum(loc, dim=2, keepdim=False)
+
+        if self.vel_branch:
+            vel = self.new_fsaf_vel(x)
+        else:
+            vel = torch.zeros_like(loc)
+
+        bbox_pred = torch.cat([loc, h, dim, vel, rot], 1) # Added vel branch
+        if self.use_iou_branch:
+            iou_pred = self.new_fsaf_iou_branch(torch.cat([x, bbox_pred], 1))
+        else:
+            iou_pred = None
+        if self.fsaf_cfg.refinement:
+            return [cls_score], [bbox_pred], [iou_pred], [part], [x]
+        return [cls_score], [bbox_pred], [iou_pred], [part], [None]
+
+    def forward(self, x, features2d=None,use_head=False):
+        ret_dict = dict()
+        if self.fsaf > 0:
+            # out_fsaf = self.fsaf_forward_center(torch.cat([out.unsqueeze(2).repeat(1,1,_D, 1, 1), x], 1))
+            # out_fsaf = self.fsaf_forward(out)
+            out_fsaf = self.fsaf_forward(x["out"].clone())
+        ret_dict['fsaf'] = out_fsaf
+        return ret_dict
+
+    def loss(self, example, preds_dict):
+        fsaf_targets = example["fsaf_targets"]
+        loss = 0
+        res = defaultdict(list)
+
+        if self.fsaf > 0:
+            if self.fsaf_cfg.use_occupancy:
+                fsaf_loss_cls, fsaf_loss_bbox, fsaf_cls_score, fsaf_labels, fsaf_refinements = self.fsaf_loss(
+                    preds_dict['fsaf'], fsaf_targets, occupancy=preds_dict['occupancy'])
+            else:
+                fsaf_loss_cls, fsaf_loss_bbox, fsaf_cls_score, fsaf_labels, fsaf_refinements = self.fsaf_loss(
+                    preds_dict['fsaf'], fsaf_targets)
+            if len(fsaf_loss_cls) == 1:
+                fsaf_loss_cls = fsaf_loss_cls[0]
+                fsaf_loss_bbox = fsaf_loss_bbox[0]
+            else:
+                fsaf_loss_cls = torch.cat(fsaf_loss_cls, 0)
+                fsaf_loss_bbox = torch.cat(fsaf_loss_bbox, 0)
+            batch_size_dev = len(fsaf_targets)
+
+            loss += (fsaf_loss_cls + fsaf_loss_bbox)
+            res["fsaf_loss_cls"].append(fsaf_loss_cls)
+            res["fsaf_loss_box"].append(fsaf_loss_bbox)
+            res["fsaf_labels"].append(fsaf_labels)
+            res["fsaf_cls_preds"].append(fsaf_cls_score)
+            res['loss'].append(loss)
+        return res
+
+
+
+
 
 
 @HEADS.register_module
-class MultiGroupHead(nn.Module):
+class MultiGroupHeadOHS_SPLIT(nn.Module):
     def __init__(
         self,
         mode="3d",
@@ -404,8 +485,15 @@ class MultiGroupHead(nn.Module):
         direction_offset=0.0,
         name="rpn",
         logger=None,
+        num_anchor_per_loc=2,
+        use_direction_classifier=True,
+        use_groupnorm=False,
+        num_groups=32,
+        box_code_size=7,
+        num_direction_bins=2,
+        fsaf_cfg=None,
     ):
-        super(MultiGroupHead, self).__init__()
+        super(MultiGroupHeadOHS_SPLIT, self).__init__()
 
         assert with_cls or with_reg
 
@@ -434,7 +522,7 @@ class MultiGroupHead(nn.Module):
         self.loss_norm = loss_norm
 
         if not logger:
-            logger = logging.getLogger("MultiGroupHead")
+            logger = logging.getLogger("MultiGroupHeadOHS")
         self.logger = logger
 
         self.dcn = None
@@ -478,7 +566,7 @@ class MultiGroupHead(nn.Module):
         self.tasks = nn.ModuleList()
         for task_id, (num_pred, num_cls) in enumerate(zip(num_preds, num_clss)):
             self.tasks.append(
-                Head(
+                HeadOHS_SPLIT(
                     in_channels,
                     num_pred,
                     num_cls,
@@ -490,7 +578,7 @@ class MultiGroupHead(nn.Module):
                 )
             )
 
-        logger.info("Finish MultiGroupHead Initialization")
+        logger.info("Finish multiGroupHeadOHS Initialization")
 
     def init_weights(self, pretrained=None):
         if isinstance(pretrained, str):
@@ -571,9 +659,6 @@ class MultiGroupHead(nn.Module):
 
     def loss(self, example, preds_dicts, **kwargs):
 
-        voxels = example["voxels"]
-        num_points = example["num_points"]
-        coors = example["coordinates"]
         batch_anchors = example["anchors"]
         batch_size_device = batch_anchors[0].shape[0]
 
@@ -658,6 +743,24 @@ class MultiGroupHead(nn.Module):
                 ret["dir_loss_reduced"] = dir_loss.detach().cpu()
             
 
+            # self.rpn_acc.clear()
+            # losses['acc'] = self.rpn_acc(
+            #     example['labels'][task_id],
+            #     cls_preds,
+            #     cared,
+            # )
+
+            # losses['pr'] = {}
+            # self.rpn_pr.clear()
+            # prec, rec = self.rpn_pr(
+            #     example['labels'][task_id],
+            #     cls_preds,
+            #     cared,
+            # )
+            # for i, thresh in enumerate(self.rpn_pr.thresholds):
+            #     losses["pr"][f"prec@{int(thresh*100)}"] = float(prec[i])
+            #     losses["pr"][f"rec@{int(thresh*100)}"] = float(rec[i])
+
             rets.append(ret)
         """convert batch-key to key-batch
         """
@@ -681,11 +784,8 @@ class MultiGroupHead(nn.Module):
                     for nuscenes, sample_token is saved in it.
             }
         """
-        voxels = example["voxels"]
-        num_points = example["num_points"]
-        coors = example["coordinates"]
+
         batch_anchors = example["anchors"]
-        batch_size_device = batch_anchors[0].shape[0]
         rets = []
         for task_id, preds_dict in enumerate(preds_dicts):
             batch_size = batch_anchors[task_id].shape[0]
@@ -884,7 +984,7 @@ class MultiGroupHead(nn.Module):
                         # anchors_range = self.target_assigner.anchors_range(class_idx)
                         anchors_range = self.target_assigners[task_id].anchors_range
                         class_scores = total_scores.view(
-                            -1, self._num_classes[task_id]
+                            -1, self.num_classes[task_id]
                         )[anchors_range[0] : anchors_range[1], class_idx]
                         class_boxes_nms = boxes.view(-1, boxes_for_nms.shape[-1])[
                             anchors_range[0] : anchors_range[1], :
@@ -1059,3 +1159,5 @@ class MultiGroupHead(nn.Module):
             predictions_dicts.append(predictions_dict)
 
         return predictions_dicts
+
+

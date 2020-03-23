@@ -462,7 +462,6 @@ class AssignTarget(object):
 
 
             if self.ohs:
-               # print('fsaf_ohs')
                 example["fsaf_targets"]=(np.concatenate([gt_dict["gt_boxes"],np.expand_dims(gt_dict["gt_classes"],-1)], -1)).astype("float32")
               #  example["grid_size"] = grid_size
 

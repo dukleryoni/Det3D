@@ -482,5 +482,3 @@ class RPNV2(RPNBase):
             block.add(nn.ReLU())
 
         return block, planes
-
-

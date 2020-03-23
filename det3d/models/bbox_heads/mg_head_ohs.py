@@ -214,6 +214,9 @@ class HeadOHS(nn.Module):
         if self.use_dir:
             self.conv_dir = nn.Conv2d(num_input, num_dir, 1)
 
+
+
+
     def forward(self, x):
         ret_list = []
         box_preds = self.conv_box(x).permute(0, 2, 3, 1).contiguous()
@@ -421,9 +424,6 @@ class MultiGroupHeadOHS(nn.Module):
 
     def loss(self, example, preds_dicts, **kwargs):
 
-        voxels = example["voxels"]
-        num_points = example["num_points"]
-        coors = example["coordinates"]
         batch_anchors = example["anchors"]
         batch_size_device = batch_anchors[0].shape[0]
 
@@ -549,11 +549,8 @@ class MultiGroupHeadOHS(nn.Module):
                     for nuscenes, sample_token is saved in it.
             }
         """
-        voxels = example["voxels"]
-        num_points = example["num_points"]
-        coors = example["coordinates"]
+
         batch_anchors = example["anchors"]
-        batch_size_device = batch_anchors[0].shape[0]
         rets = []
         for task_id, preds_dict in enumerate(preds_dicts):
             batch_size = batch_anchors[task_id].shape[0]

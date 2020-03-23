@@ -110,7 +110,7 @@ class RefineMultiBoxFSAFLoss(nn.Module):
             self.loss_ang_vector = WeightedL2LocalizationLoss(5.0)
 
         else:
-            print("using default code weights for fsaf_loss")
+            # print("using default code weights for fsaf_loss")
             if self.cfg.rot_type == 'cos_sin':
                 self.loss_box = WeightedSmoothL1Loss(code_weights=self.code_weights)  # Need to change to include velocities: original weights: [5.0, 5.0, 7.0, 3.0, 3.0, 5.0, 5.0, 5.0]
             if self.cfg.rot_type == 'softbin':

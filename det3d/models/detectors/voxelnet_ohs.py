@@ -8,7 +8,7 @@ from det3d.models.losses.fsaf_loss import RefineMultiBoxFSAFLoss
 from collections import defaultdict
 import torch.nn.functional as F
 from det3d.core import box_torch_ops
-#from .ohs_helper import generate_points, limit_period
+# from .ohs_helper import generate_points, limit_period
 import numpy as np
 import itertools
 
@@ -32,12 +32,19 @@ class VoxelNet_OHS(SingleStageDetector):
         )
         self.fsaf = 0
         self.eval_fsaf=0
-        if neck.get("ohs") is not None:
-            self.fsaf = neck.ohs.fsaf
-            self.eval_fsaf = neck.ohs.fsaf
-            self.encode_background_as_zeros = neck.ohs.encode_background_as_zeros
-            self.use_iou_branch = neck.ohs.use_iou_branch
-            self.fsaf_cfg = neck.ohs.fsaf_module
+
+        self.ohs=None
+        if hasattr(neck,"ohs"):
+            self.ohs = neck.ohs
+        elif hasattr(bbox_head,"ohs"):
+            self.ohs = bbox_head.ohs
+
+        if self.ohs is not None:
+            self.fsaf = self.ohs.fsaf
+            self.eval_fsaf = self.ohs.fsaf
+            self.encode_background_as_zeros = self.ohs.encode_background_as_zeros
+            self.use_iou_branch = self.ohs.use_iou_branch
+            self.fsaf_cfg = self.ohs.fsaf_module
             self.class_names = list(itertools.chain(*[t["class_names"] for t in self.fsaf_cfg.tasks]))
             self.num_class = len(self.class_names)
             self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class+1,
@@ -46,7 +53,9 @@ class VoxelNet_OHS(SingleStageDetector):
                                                    use_iou_branch=self.use_iou_branch)
 
             self._use_direction_classifier = self.bbox_head.use_direction_classifier
-            self._use_sigmoid_score = self.bbox_head.use_sigmoid_score
+            self.use_sigmoid_score = self.bbox_head.use_sigmoid_score
+            self.dir_offset = self.bbox_head.direction_offset
+            
             self._use_rotate_nms = self.test_cfg.nms.use_rotate_nms
             self._multiclass_nms = self.test_cfg.nms.use_multi_class_nms
             self._nms_score_thresholds = [self.test_cfg.score_threshold]
@@ -54,30 +63,9 @@ class VoxelNet_OHS(SingleStageDetector):
             self._nms_post_max_sizes = [self.test_cfg.nms.nms_post_max_size]
             self._nms_iou_thresholds = [self.test_cfg.nms.nms_iou_threshold]
             self._num_direction_bins = 2
-            self._dir_offset = self.bbox_head.direction_offset
 
     def extract_feat(self, data,):
         input_features = self.reader(data["features"], data["num_voxels"])
-
-        # # General input VoxelDrop
-        # voxel_general_dropout = False  # TODO ADD to Config
-        # p_dropout = 0.1
-        # if voxel_general_dropout:
-        #     # This the logical mask of entries we keep (hence 1 - p_dropout)
-        #     dropout_mask = torch.bernoulli((1-p_dropout)*torch.ones(len(input_features))).type(torch.bool)
-        #     input_features = input_features[dropout_mask]
-        #     data["features"] = data["features"][dropout_mask]
-        #     data["coors"] = data["coors"][dropout_mask]
-        #     data["num_voxels"] = data["num_voxels"][dropout_mask]
-        #
-        # # Ground Truth Specific VoxelDrop
-        # voxel_gt_dropout = True
-        # if voxel_gt_dropout:
-        #     gt_dropout_masks = ohs_helper.get_gt_masks(data=data, range=self.fsaf_cfg.range)
-        #     input_features, coors = ohs_helper.get_gt_dropout(drop_rate=p_dropout, features=input_features, coors=data["coors"],
-        #                                                       masks=gt_dropout_masks)
-
-
         x = self.backbone(
             input_features, data["coors"], data["batch_size"], data["input_shape"]
         )
@@ -95,13 +83,6 @@ class VoxelNet_OHS(SingleStageDetector):
                 occupancy, _ = torch.max(occupancy, dim=1)
                 x['occupancy'] = occupancy.byte()
         return x
-
-
-
-
-
-
-
 
     def extract_feat_voxelDrop(self, data,):
         input_features = self.reader(data["features"], data["num_voxels"])
@@ -130,15 +111,10 @@ class VoxelNet_OHS(SingleStageDetector):
             data["coors"] = data["coors"][dropout_mask]
             data["num_voxels"] = data["num_voxels"][dropout_mask]
 
+        x = self.backbone(input_features, data["coors"], data["batch_size"], data["input_shape"])
 
-
-
-
-
-        x = self.backbone(
-            input_features, data["coors"], data["batch_size"], data["input_shape"]
-        )
         spatial_features = x
+
         if self.with_neck:
             x = self.neck(x)
 
@@ -155,7 +131,54 @@ class VoxelNet_OHS(SingleStageDetector):
 
         return x
 
-    def loss(self, example, preds_dict, fsaf_targets=None):
+    def forward(self, example, return_loss=True, **kwargs):
+        voxels = example["voxels"]
+        coordinates = example["coordinates"]
+        num_points_in_voxel = example["num_points"]
+        num_voxels = example["num_voxels"]
+
+        batch_size = len(num_voxels)
+
+        data = dict(
+            features=voxels,
+            num_voxels=num_points_in_voxel,
+            coors=coordinates,
+            batch_size=batch_size,
+            input_shape=example["shape"][0],
+        )
+        if self.fsaf > 0 and return_loss:
+            data["fsaf_targets"] = example["fsaf_targets"]
+
+        preds_dict = self.extract_feat_voxelDrop(data)
+
+        if self.fsaf  > 0:
+            # mg_Head split
+            if hasattr(self.bbox_head, "ohs"): # TODO go over this and see what would be the cleanest way to go
+                preds = self.bbox_head(preds_dict)
+
+                if return_loss:
+                    return self.bbox_head.loss(example, preds)
+                else:
+                    with torch.no_grad():
+                        return self.predict(example, preds) # need to replace with mg_split version, to add multiclass decide how to incorporate the loss
+
+            else: #FSAF
+                if return_loss:
+                    return self.loss(example, preds_dict)
+
+                else:
+                    with torch.no_grad():
+                        return self.predict(example, preds_dict)
+
+        else: #regular
+            preds = self.bbox_head(preds_dict)
+            if return_loss:
+                return self.bbox_head.loss(example, preds)
+            else:
+                return self.bbox_head.predict(example, preds, self.test_cfg)
+
+    def loss(self, example, preds_dict):
+        fsaf_targets = example["fsaf_targets"]
         loss = 0
         res = defaultdict(list)
 
@@ -182,47 +205,6 @@ class VoxelNet_OHS(SingleStageDetector):
             res['loss'].append(loss)
         return res
 
-    def forward(self, example, return_loss=True, **kwargs):
-        voxels = example["voxels"]
-        coordinates = example["coordinates"]
-        num_points_in_voxel = example["num_points"]
-        num_voxels = example["num_voxels"]
-
-        batch_size = len(num_voxels)
-
-        data = dict(
-            features=voxels,
-            num_voxels=num_points_in_voxel,
-            coors=coordinates,
-            batch_size=batch_size,
-            input_shape=example["shape"][0],
-        )
-        if self.fsaf > 0 and return_loss:
-            data["fsaf_targets"]=example["fsaf_targets"]
-
-        if return_loss:
-            preds_dict = self.extract_feat_voxelDrop(data) # TODO Figure out the best way to do inference if we train with voxeldrop: i.e. should we renormalize?
-        else:
-            preds_dict = self.extract_feat_voxelDrop(data) # added voxelDrop
-
-        if self.fsaf  > 0:
-            if return_loss:
-                blob = self.loss(example, preds_dict, example["fsaf_targets"])
-#                print(blob)
-                return blob
-            else:
-                with torch.no_grad():
-                    return self.predict(example, preds_dict)
-
-        else:
-            # import pdb
-            # pdb.set_trace()
-            preds = self.bbox_head(preds_dict)
-            if return_loss:
-                return self.bbox_head.loss(example, preds)
-            else:
-                return self.bbox_head.predict(example, preds, self.test_cfg)
-
     def predict_single(self, box_preds, cls_preds, dir_preds, features, a_mask, meta, feature_map_size_prod, dtype,
                        device, num_class_with_bg, post_center_range, predictions_dicts, points):
         if a_mask is not None:
@@ -238,11 +220,11 @@ class VoxelNet_OHS(SingleStageDetector):
             dir_labels = torch.max(dir_preds, dim=-1)[1]
         if self.encode_background_as_zeros:
             # this don't support softmax
-            assert self._use_sigmoid_score is True
+            assert self.use_sigmoid_score is True
             total_scores = torch.sigmoid(cls_preds)
         else:
             # encode background as first element in one-hot vector
-            if self._use_sigmoid_score:
+            if self.use_sigmoid_score:
                 total_scores = torch.sigmoid(cls_preds)[..., 1:]
             else:
                 total_scores = F.softmax(cls_preds, dim=-1)[..., 1:]
@@ -400,12 +382,12 @@ class VoxelNet_OHS(SingleStageDetector):
                 dir_labels = selected_dir_labels
                 period = (2 * np.pi / self._num_direction_bins)
                 # dir_rot = box_torch_ops.limit_period(S
-                #     box_preds[..., 6] - self._dir_offset,
+                #     box_preds[..., 6] - self.dir_offset,
                 #     self._dir_limit_offset, period)
                 dir_rot = ohs_helper.limit_period(
-                    box_preds[..., -1] - self._dir_offset,  # changed for velocity
+                    box_preds[..., -1] - self.dir_offset,  # changed for velocity
                     0, 2 * np.pi)
-                yaw = dir_rot + self._dir_offset + period * dir_labels
+                yaw = dir_rot + self.dir_offset + period * dir_labels
 
 
           #  box_preds_vel_rot = torch.cat((box_preds[..., -3:-1], yaw), -1).type(dtype=box_preds.dtype)  #TODO Add velocity to predictions, for now it is 0
