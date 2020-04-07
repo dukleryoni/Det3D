@@ -32,6 +32,9 @@ def example_to_device(
             example_torch[k] = calib
         elif k == "fsaf_targets":
             example_torch[k] = [elem.cuda(device, non_blocking=non_blocking) for elem in v] # if v is not None added if statement in list comprehension
+
+        elif k == "fsaf_mg_targets":
+            example_torch[k] = [[elem.cuda(device, non_blocking=non_blocking) for elem in batch_elem] for batch_elem in v]  # double list comp
         else:
             example_torch[k] = v
 

@@ -2,7 +2,7 @@
 TASK_DESC=$1
 DATE_WITH_TIME=`date "+%Y%m%d-%H%M%S"`
 #OUT_DIR=experiments/nusc_second/voxel_drop/gt_drop_02
-OUT_DIR=experiments/nusc_second/baselines/
+OUT_DIR=experiments/nusc_ohs/multi_class/5000_class_weight
 
 #general_voxel_01
 
@@ -32,7 +32,9 @@ fi
 #python -m torch.distributed.launch --nproc_per_node=8 ./tools/train.py examples/second/configs/hpc_ohs_nusc_car_vfev3_RESNET_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND
 #python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/second/configs/hpc_ohs_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py --work_dir=$NUSC_SECOND --resume_from=$RESUME_FROM
 #python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/configs/hpc_ohs_nusc_car_vel.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
-#python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/multi_class/hpc_multi_class_config_split.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
+# python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/multi_class/multi_class_config_split.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
+#python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/multi_class/multi_class_ohs_car_ped.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
+#python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/multi_class/nusc_all_spmiddle_resnet_ohs.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
 python -m torch.distributed.launch --nproc_per_node=8 ././tools/train.py examples/ohs/multi_class/nusc_all_ohs.py --work_dir=$NUSC_SECOND #--resume_from=$RESUME_FROM
 
 

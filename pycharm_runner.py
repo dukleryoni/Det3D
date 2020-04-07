@@ -4,7 +4,6 @@ warnings.filterwarnings("ignore")
 import json
 import os
 import sys
-sys.path.append('/home/claire.chen/work/Det3D')
 import pdb
 import numpy as np
 import torch
@@ -48,7 +47,7 @@ parser.add_argument(
     default="none",
     help="job launcher",
 )
-parser.add_argument("--local_rank", type=int, default=3)
+parser.add_argument("--local_rank", type=int, default=0)
 parser.add_argument(
     "--autoscale-lr",
     action="store_true",
@@ -63,19 +62,22 @@ args = parser.parse_args("a  --gpus=1 --work_dir experiments/nusc_second".split(
 #args.config="examples/second/configs/nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 
 #args.config="examples/second/configs/hpc_ohs_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
+# args.config="examples/ohs/multi_class/multi_class_config_split.py"
 args.config="examples/ohs/multi_class/multi_class_config_split.py"
 
 
-#args.config="examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py"
+# args.config="examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py"
 #args.config="examples/cbgs/configs/cbgs_car_only_try.py"
 
 
 # Torch Distributed Variables
+os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MASTER_ADDR"] = "127.0.0.1"
 os.environ["MASTER_PORT"] = "29500"
-os.environ["LOCAL_RANK"] = "0"
+os.environ["LOCAL_RANK"] = "1"
 os.environ["RANK"] = "0"
 os.environ["WORLD_SIZE"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 cfg = Config.fromfile(args.config)
@@ -95,8 +97,8 @@ if "WORLD_SIZE" in os.environ:
 if distributed:
     torch.cuda.set_device(args.local_rank)
     print('stuck')
-    torch.distributed.init_process_group(backend="nccl",
-                       init_method="env://")
+    torch.distributed.init_process_group(backend="nccl", init_method="env://")
+
     print('passed')
     cfg.gpus = torch.distributed.get_world_size()
 

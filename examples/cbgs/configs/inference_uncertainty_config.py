@@ -366,7 +366,7 @@ log_config = dict(
 # yapf:enable
 # runtime settings
 total_epochs = 4
-device_ids = range(2)
+device_ids = range(1)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = ""

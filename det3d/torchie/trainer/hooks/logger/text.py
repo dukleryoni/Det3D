@@ -97,6 +97,10 @@ class TextLoggerHook(LoggerHook):
                 ]:
                     continue
 
+                # ToDO Added to remove grads from textlogging
+                if 'grad' in name:
+                    continue
+
                 if isinstance(val, float):
                     val = "{:.4f}".format(val)
 

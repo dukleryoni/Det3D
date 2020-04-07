@@ -217,9 +217,9 @@ db_sampler = dict(
     enable=False,
     db_info_path="data/Nuscenes/v1.0-trainval/dbinfos_train_10sweeps_withvelo.pkl",
     sample_groups=[
-        dict(car=15,),
-        dict(traffic_cone=16),
-        dict(pedestrian=4),
+        dict(car=6,),
+        dict(pedestrian=6),
+        dict(traffic_cone=6),
     ],
     db_prep_steps=[
         dict(filter_by_min_num_points=dict(
@@ -309,8 +309,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=1,
+    samples_per_gpu=8,
+    workers_per_gpu=3,
     train=dict(
         type=dataset_type,
         root_path=data_root,
@@ -363,12 +363,12 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs =4
-device_ids = range(1)
+total_epochs =16
+device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
 work_dir = "experiments/SECOND"
 load_from = None
 resume_from = None
 workflow = [("train", 1), ("val", 1)]
-mini_epoch = 20
+# mini_epoch= 200

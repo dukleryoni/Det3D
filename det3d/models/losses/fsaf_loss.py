@@ -87,7 +87,7 @@ class RefineMultiBoxFSAFLoss(nn.Module):
         super(RefineMultiBoxFSAFLoss, self).__init__()
         # self.input_shape = input_shape
         self.cfg = cfg
-        self.cls_out_channels = num_classes-1
+        self.cls_out_channels = num_classes
         self.pc_range = np.array(pc_range, dtype=np.float32)
         self.dims = self.pc_range[3:]-self.pc_range[:3]
         self.vel_branch = cfg.vel_branch
@@ -362,12 +362,14 @@ class RefineMultiBoxFSAFLoss(nn.Module):
             loss_box += self.loss_box(bbox_pred, bbox_targets,  weights=(2 * torch.exp(-torch.sqrt(vol))).reshape(-1)).sum()/bbox_pred.size(0)
             '''
         else:
-            my_weight = torch.FloatTensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0])
-            my_weight.to(bbox_pred.device)
+            # my_weight = torch.FloatTensor(self.code_weights)
+            # my_weight.to(bbox_pred.device)
             my_weight = torch.ones(len(bbox_pred), device=bbox_pred.device)
 
             # Take care of NaNs in bbox_target
-            bbox_targets[torch.isnan(bbox_targets)] = bbox_pred[torch.isnan(bbox_targets)].clone().detach()
+            if torch.any(torch.isnan(bbox_targets)):
+                # print("not considering nans in loss")
+                bbox_targets[torch.isnan(bbox_targets)] = bbox_pred[torch.isnan(bbox_targets)].detach().clone()
 
             loss_box += self.cfg.smoothl1_loss_weight *  self.loss_box(bbox_pred, bbox_targets,  weights=my_weight).sum()/bbox_pred.size(0)
         if self.use_iou_branch:

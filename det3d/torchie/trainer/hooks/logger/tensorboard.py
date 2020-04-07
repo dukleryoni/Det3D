@@ -33,6 +33,9 @@ class TensorboardLoggerHook(LoggerHook):
         if self.log_dir is None:
             self.log_dir = osp.join(trainer.work_dir, "tf_logs")
         self.writer = SummaryWriter(self.log_dir)
+        # Logging graph: Not working
+        # print('saving computational graph')
+        # self.writer.add_graph(trainer.model)
 
     @master_only
     def log(self, trainer):
@@ -43,6 +46,11 @@ class TensorboardLoggerHook(LoggerHook):
             record = trainer.log_buffer.output[var]
             if isinstance(record, str):
                 self.writer.add_text(tag, record, trainer.iter)
+
+            # Record Gradients
+            if 'grad' in var:
+                self.writer.add_scalar(tag, trainer.log_buffer.output[var], trainer.iter)
+
             else:
                 # print(tag, trainer.log_buffer.output[var], trainer.iter)
                 if isinstance(trainer.log_buffer.output[var], (list,tuple)):

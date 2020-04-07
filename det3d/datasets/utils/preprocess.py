@@ -80,6 +80,8 @@ type_map = {
     "calib": torch.float32,
     "num_voxels": torch.int64,
     "fsaf_targets": torch.float32,
+    "fsaf_mg_targets": torch.float32,
+
 }
 
 
@@ -108,7 +110,7 @@ def collate_sequence_batch(batch_list):
                     batch_task_gt_boxes3d[i, : len(elems[i][idx]), :] = elems[i][idx]
                 res.append(batch_task_gt_boxes3d)
             ret_current_frame[key] = res
-        elif key == ["metadata", "grid_size", "fsaf_targets"]:
+        elif key == ["metadata", "grid_size", "fsaf_targets", "fsaf_mg_targets"]:
             ret_current_frame[key] = elems
         elif key == "calib":
             ret_current_frame[key] = {}

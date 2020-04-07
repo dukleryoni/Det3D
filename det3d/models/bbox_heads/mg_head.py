@@ -16,6 +16,7 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from .. import builder
 from ..losses import accuracy
 from ..registry import HEADS
+import pdb
 
 
 def one_hot_f(tensor, depth, dim=-1, on_value=1.0, dtype=torch.float32):
@@ -705,7 +706,7 @@ class MultiGroupHead(nn.Module):
                 batch_anchors_mask = example["anchors_mask"][task_id].view(
                     batch_size, -1
                 )
-
+            # pdb.set_trace()
             batch_box_preds = preds_dict["box_preds"]
             batch_cls_preds = preds_dict["cls_preds"]
 
@@ -774,6 +775,7 @@ class MultiGroupHead(nn.Module):
                     ret[k] = rets[0][i][k]
             ret_list.append(ret)
 
+        # pdb.set_trace()
         return ret_list
 
     def get_task_detections(
@@ -1057,5 +1059,6 @@ class MultiGroupHead(nn.Module):
                 }
 
             predictions_dicts.append(predictions_dict)
-
+        import pdb
+        # pdb.set_trace()
         return predictions_dicts

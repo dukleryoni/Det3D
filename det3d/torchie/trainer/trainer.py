@@ -37,6 +37,8 @@ def example_to_device(example, device, non_blocking=False) -> dict:
     for k, v in example.items():
         if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "fsaf_targets"]:
             example_torch[k] = [res.to(device, non_blocking=non_blocking) for res in v]
+        elif k in ["fsaf_mg_targets"]:
+            example_torch[k] = [[res.to(device, non_blocking=non_blocking) for res in res_class] for res_class in v]
         elif k in [
             "voxels",
             "bev_map",
@@ -146,6 +148,7 @@ class Trainer(object):
         work_dir=None,
         log_level=logging.INFO,
         logger=None,
+        mini_epoch=None,
         **kwargs,
     ):
         assert callable(batch_processor)
@@ -154,6 +157,7 @@ class Trainer(object):
         self.lr_scheduler = lr_scheduler
 
         self.batch_processor = batch_processor
+        self.mini_epoch = mini_epoch # added to do rapid testing of training followed by validation
 
         # Create work_dir
         if torchie.is_str(work_dir):
@@ -391,6 +395,10 @@ class Trainer(object):
         # prefetcher = Prefetcher(data_loader)
         # for data_batch in BackgroundGenerator(data_loader, max_prefetch=3):
         for i, data_batch in enumerate(data_loader):
+            # short training
+            if self.mini_epoch is not None and i > self.mini_epoch:
+                break
+
             global_step = base_step + i
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step(global_step)
@@ -415,6 +423,16 @@ class Trainer(object):
             self.call_hook("after_train_iter")
             self._iter += 1
 
+            save_grads = True
+            if save_grads:
+                # saving gradient norms to tensorboard
+                chosen_params = ['bbox_head.new_fsaf_cls.weight', 'bbox_head.new_fsaf_dim.weight']
+                grad_norms = {'grad_norm' + n: torch.norm(p.grad).detach().cpu() for (n,p) in self.model.named_parameters() if p.grad is not None}
+                self.log_buffer.update(grad_norms)
+
+            #print(self.outputs["loss"], self.outputs["loss"].grad)
+
+
         self.call_hook("after_train_epoch")
         self._epoch += 1
 
@@ -433,6 +451,9 @@ class Trainer(object):
         cpu_device = torch.device("cpu")
 
         for i, data_batch in enumerate(data_loader):
+
+            if self.mini_epoch is not None and i > self.mini_epoch:
+                break
             self._inner_iter = i
             self.call_hook("before_val_iter")
             with torch.no_grad():
@@ -508,6 +529,7 @@ class Trainer(object):
         assert isinstance(data_loaders, list)
         assert torchie.is_list_of(workflow, tuple)
         assert len(data_loaders) == len(workflow)
+
 
         self._max_epochs = max_epochs
         work_dir = self.work_dir if self.work_dir is not None else "NONE"

@@ -16,6 +16,9 @@ from det3d.models.utils import change_default_args
 from det3d.models.utils import Empty, GroupNorm, Sequential
 from det3d.models.losses.fsaf_loss import RefineMultiBoxFSAFLoss # added to incorporate the loss
 
+import pdb
+from det3d.models.detectors import ohs_helper
+import time
 
 
 from .. import builder
@@ -200,35 +203,21 @@ class LossNormType(Enum):
 class HeadOHS_SPLIT(nn.Module):
 
     def __init__(self,
-                 mode="3d",
-                 norm_cfg=None,
                  tasks=[],
-                 weights=[],
-                 num_classes=[1,],
-                 box_coder=None,
-                 with_cls=True,
-                 with_reg=True,
-                 reg_class_agnostic=False,
-                 loss_norm=dict(
-                     type="NormByNumPositives", pos_class_weight=1.0, neg_class_weight=1.0,
-                 ),
-                 loss_cls=dict(type="CrossEntropyLoss", use_sigmoid=False, loss_weight=1.0, ),
-                 use_sigmoid_score=True,
-                 loss_bbox=dict(type="SmoothL1Loss", beta=1.0, loss_weight=1.0, ),
-                 encode_rad_error_by_sin=True,
+                 num_class=None,
                  loss_aux=None,
-                 direction_offset=0.0,
                  ohs=None,
                  in_channels=128,
                  num_anchor_per_loc=2,
                  encode_background_as_zeros=True,
                  use_direction_classifier=True,
                  num_direction_bins=2,
-                 name='rpn',
                  fsaf=0,
-                 logger=None,
                  fsaf_cfg=None,
-                 use_iou_branch=False):
+                 use_iou_branch=False,
+                 use_sigmoid_score=True,
+                 direction_offset=0.0,
+                 ):
 
         super(HeadOHS_SPLIT, self).__init__()
         self.in_channels = in_channels
@@ -236,7 +225,7 @@ class HeadOHS_SPLIT(nn.Module):
         self.num_direction_bins = num_direction_bins
         self.use_direction_classifier = use_direction_classifier or (loss_aux is not None) #ToDo make config better
         self.use_sigmoid_score = use_sigmoid_score
-        self.direction_offset =direction_offset
+        self.direction_offset = direction_offset
         self.encode_background_as_zeros = encode_background_as_zeros
 
         self.fsaf = fsaf
@@ -247,26 +236,27 @@ class HeadOHS_SPLIT(nn.Module):
         if ohs is not None:
             self.ohs = ohs
             self.fsaf = ohs.fsaf
+            self.eval_fsaf = ohs.eval_fsaf
             self.fsaf_cfg = ohs.fsaf_module
             self.use_iou_branch = ohs.use_iou_branch
-            self.tasks = ohs.tasks
-            # self.num_class = len(self.tasks) # ToDo implement this correctly so that we can extend to multiclass
+            # self.tasks = ohs.tasks # Todo remove
             self.vel_branch = self.ohs.fsaf_module.vel_branch # Adding velocity
             if self.vel_branch:
                 print("using velocity branch:", self.vel_branch)
 
 
-        num_classes = [len(t["class_names"]) for t in self.tasks]
-        self.class_names = [t["class_names"] for t in self.tasks] # change this number since
-        self.num_class = num_classes[0] # ToDO make it with the same format as CBGS
+        num_classes = [len(t["class_names"]) for t in tasks]
+        self.class_names = [t["class_names"] for t in tasks]
+        if len(num_classes) == 1:
+            self.num_class = num_classes[0]
 
-        self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class + 1,
+        if num_class is not None:
+            self.num_class = num_class
+
+        self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class,
                                                 pc_range=self.fsaf_cfg.range,
                                                 encode_background_as_zeros=self.encode_background_as_zeros,
                                                 use_iou_branch=self.use_iou_branch)
-
-
-
 
         if encode_background_as_zeros:
             num_cls = num_anchor_per_loc * self.num_class
@@ -352,8 +342,6 @@ class HeadOHS_SPLIT(nn.Module):
             if self.vel_branch:
                 self.new_fsaf_vel = nn.Conv2d(final_num_filters, 2, kernel_size=1)
 
-
-
             if self.fsaf_cfg.part_classification:
                 if self.fsaf_cfg.part_type in ['up_down', 'left_right']:
                     part_num = 2
@@ -367,7 +355,7 @@ class HeadOHS_SPLIT(nn.Module):
                 )
 
             if use_direction_classifier:
-                self.conv_dir_cls = nn.Conv2d(final_num_filters, self.num_anchor_per_loc * num_direction_bins, 1)
+                self.conv_dir_cls = nn.Conv2d(final_num_filters, self.num_anchor_per_loc * num_direction_bins, 1) # does this need to take in the number of classes
 
     def fsaf_forward(self, x):
         x = self.new_fsaf_reg_conv(x)
@@ -455,130 +443,137 @@ class HeadOHS_SPLIT(nn.Module):
         return res
 
 
-
-
-
-
 @HEADS.register_module
 class MultiGroupHeadOHS_SPLIT(nn.Module):
     def __init__(
         self,
-        mode="3d",
-        in_channels=[128,],
-        norm_cfg=None,
         tasks=[],
-        weights=[],
-        num_classes=[1,],
-        box_coder=None,
-        with_cls=True,
-        with_reg=True,
-        reg_class_agnostic=False,
-        encode_background_as_zeros=True,
-        loss_norm=dict(
-            type="NormByNumPositives", pos_class_weight=1.0, neg_class_weight=1.0,
-        ),
-        loss_cls=dict(type="CrossEntropyLoss", use_sigmoid=False, loss_weight=1.0,),
         use_sigmoid_score=True,
-        loss_bbox=dict(type="SmoothL1Loss", beta=1.0, loss_weight=1.0,),
-        encode_rad_error_by_sin=True,
         loss_aux=None,
         direction_offset=0.0,
-        name="rpn",
-        logger=None,
+        ohs=None,
+        in_channels=128,
         num_anchor_per_loc=2,
+        encode_background_as_zeros=True,
         use_direction_classifier=True,
-        use_groupnorm=False,
-        num_groups=32,
-        box_code_size=7,
         num_direction_bins=2,
+        fsaf=0,
+        logger=None,
         fsaf_cfg=None,
+        use_iou_branch=False,
     ):
         super(MultiGroupHeadOHS_SPLIT, self).__init__()
 
-        assert with_cls or with_reg
-
-        num_classes = [len(t["class_names"]) for t in tasks]
-        self.class_names = [t["class_names"] for t in tasks]
-        self.num_anchor_per_locs = [2 * n for n in num_classes]
-
-        self.box_coder = box_coder
-        box_code_sizes = [box_coder.n_dim] * len(num_classes)
-
-        self.with_cls = with_cls
-        self.with_reg = with_reg
         self.in_channels = in_channels
-        self.num_classes = num_classes
-        self.reg_class_agnostic = reg_class_agnostic
-        self.encode_rad_error_by_sin = encode_rad_error_by_sin
-        self.encode_background_as_zeros = encode_background_as_zeros
+        self.num_anchor_per_loc = num_anchor_per_loc
+        self.num_direction_bins = num_direction_bins
+        self.use_direction_classifier = use_direction_classifier or (loss_aux is not None)
         self.use_sigmoid_score = use_sigmoid_score
-        self.box_n_dim = self.box_coder.n_dim
+        self.direction_offset = direction_offset
+        self.encode_background_as_zeros = encode_background_as_zeros
 
-        self.loss_cls = build_loss(loss_cls)
-        self.loss_reg = build_loss(loss_bbox)
+        self.fsaf = fsaf
+        self.fsaf_cfg = fsaf_cfg
+        self.use_iou_branch = use_iou_branch
+        self.vel_branch = False
+
+        if ohs is not None:
+            self.ohs = ohs
+            self.eval_fsaf = ohs.eval_fsaf
+            self.fsaf = ohs.fsaf
+            self.fsaf_cfg = ohs.fsaf_module
+            self.use_iou_branch = ohs.use_iou_branch
+            self.vel_branch = self.ohs.fsaf_module.vel_branch  # Adding velocity
+            if self.vel_branch:
+                print("using velocity branch:", self.vel_branch)
+
+        self.num_classes = [len(t["class_names"]) for t in tasks]
+        self.class_names = [t["class_names"] for t in tasks]
+        # self.num_anchor_per_locs = [2 * n for n in num_classes]  ## ToDO delete
+        # self.box_coder = box_coder # Todo remove this
+        # box_code_sizes = [box_coder.n_dim] * len(num_classes)
+
+        self.encode_background_as_zeros = encode_background_as_zeros
+
         if loss_aux is not None:
             self.loss_aux = build_loss(loss_aux)
 
-        self.loss_norm = loss_norm
+        # self.dcn = None # todo remove?
+        # self.zero_init_residual = False
 
-        if not logger:
-            logger = logging.getLogger("MultiGroupHeadOHS")
-        self.logger = logger
-
-        self.dcn = None
-        self.zero_init_residual = False
-
-        self.use_direction_classifier = loss_aux is not None
         if loss_aux:
             self.direction_offset = direction_offset
 
-        self.bev_only = True if mode == "bev" else False
-
-        num_clss = []
-        num_preds = []
-        num_dirs = []
-
-        for num_c, num_a, box_cs in zip(
-            num_classes, self.num_anchor_per_locs, box_code_sizes
-        ):
-            if self.encode_background_as_zeros:
-                num_cls = num_a * num_c
-            else:
-                num_cls = num_a * (num_c + 1)
-            num_clss.append(num_cls)
-
-            if self.bev_only:
-                num_pred = num_a * (box_cs - 2)
-            else:
-                num_pred = num_a * box_cs
-            num_preds.append(num_pred)
-
-            if self.use_direction_classifier:
-                num_dir = num_a * 2
-                num_dirs.append(num_dir)
-            else:
-                num_dir = None
-
-        logger.info(
-            f"num_classes: {num_classes}, num_preds: {num_preds}, num_dirs: {num_dirs}"
-        )
-
         self.tasks = nn.ModuleList()
-        for task_id, (num_pred, num_cls) in enumerate(zip(num_preds, num_clss)):
+
+        if not logger:
+            logger = logging.getLogger("MultiGroupHead")
+        self.logger = logger
+
+        # num_clss = []
+        # num_preds = []
+        # num_dirs = []
+        #
+        # for num_c, num_a, box_cs in zip(
+        #     num_classes, self.num_anchor_per_locs, box_code_sizes
+        # ):
+        #     if self.encode_background_as_zeros:
+        #         num_cls = num_a * num_c
+        #     else:
+        #         num_cls = num_a * (num_c + 1)
+        #     num_clss.append(num_cls)
+        #
+        #     if self.bev_only:
+        #         num_pred = num_a * (box_cs - 2)
+        #     else:
+        #         num_pred = num_a * box_cs
+        #     num_preds.append(num_pred)
+        #
+        #     if self.use_direction_classifier:
+        #         num_dir = num_a * 2
+        #         num_dirs.append(num_dir)
+        #     else:
+        #         num_dir = None
+        #
+        # logger.info(
+        #     f"num_classes: {num_classes}, num_preds: {num_preds}, num_dirs: {num_dirs}"
+        # )
+
+
+        # for task_id, (num_pred, num_cls) in enumerate(zip(num_preds, num_clss)):
+        #     self.tasks.append(
+        #         HeadOHS_SPLIT(
+        #             in_channels=self.in_channels,
+        #             num_pred,
+        #             num_cls,
+        #             use_dir=self.use_direction_classifier,
+        #             num_dir=num_dirs[task_id]
+        #             if self.use_direction_classifier
+        #             else None,
+        #             header=False,
+        #         )
+        #     )
+
+        for task_id, num_cls in enumerate(self.num_classes): # to do add this and change
             self.tasks.append(
                 HeadOHS_SPLIT(
-                    in_channels,
-                    num_pred,
-                    num_cls,
-                    use_dir=self.use_direction_classifier,
-                    num_dir=num_dirs[task_id]
-                    if self.use_direction_classifier
-                    else None,
-                    header=False,
+                    num_class=num_cls,
+                    loss_aux=self.loss_aux,
+                    ohs=self.ohs,
+                    in_channels=self.in_channels,
+                    num_anchor_per_loc=self.num_anchor_per_loc,
+                    encode_background_as_zeros=self.encode_background_as_zeros,
+                    use_direction_classifier=self.use_direction_classifier,
+                    num_direction_bins=self.num_direction_bins,
+                    fsaf=self.fsaf,
+                    fsaf_cfg=self.fsaf_cfg,
+                    use_iou_branch=self.use_iou_branch,
+                    use_sigmoid_score=self.use_sigmoid_score,
+                    direction_offset=self.direction_offset,
                 )
             )
 
-        logger.info("Finish multiGroupHeadOHS Initialization")
+            logger.info("Finish multiGroupHeadOHS Initialization")
 
     def init_weights(self, pretrained=None):
         if isinstance(pretrained, str):
@@ -741,7 +736,6 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
             }
             if self.use_direction_classifier:
                 ret["dir_loss_reduced"] = dir_loss.detach().cpu()
-            
 
             # self.rpn_acc.clear()
             # losses['acc'] = self.rpn_acc(
@@ -768,6 +762,25 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
         for ret in rets:
             for k, v in ret.items():
                 rets_merged[k].append(v)
+
+        return rets_merged
+
+    def loss_mg_fsaf(self, example, preds_dicts, **kwargs):
+        # needs to return a dictionary that has 'loss' as a list of losses from the different classes
+
+        targets_list = example["fsaf_mg_targets"]
+        targets_class_first = [[targets[i] for targets in targets_list] for i in range(len(targets_list[0]))] # to re-arange to class batch index ordering
+        rets = []
+        for task_id, (preds_dict, targets) in enumerate(zip(preds_dicts, targets_class_first)):
+            ret=self.tasks[task_id].loss({'fsaf_targets': targets}, preds_dict)
+            rets.append(ret)
+        """convert batch-key to key-batch
+        """
+
+        rets_merged = defaultdict(list)
+        for ret in rets:
+            for k, v in ret.items():
+                rets_merged[k]+=v # since v is a list of length 1
 
         return rets_merged
 
@@ -805,7 +818,7 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
                 batch_anchors_mask = example["anchors_mask"][task_id].view(
                     batch_size, -1
                 )
-
+            # pdb.set_trace() # added trace
             batch_box_preds = preds_dict["box_preds"]
             batch_cls_preds = preds_dict["cls_preds"]
 
@@ -875,6 +888,53 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
             ret_list.append(ret)
 
         return ret_list
+
+
+    def predict_mg_fsaf(self, example, preds_dicts, test_cfg, **kwargs):
+        """start with v1.6.0, this function don't contain any kitti-specific code.
+        Returns:
+            predict: list of pred_dict.
+            pred_dict: {
+                box3d_lidar: [N, 7] 3d box.
+                scores: [N]
+                label_preds: [N]
+                metadata: meta-data which contains dataset-specific information.
+                    for kitti, it contains image idx (label idx),
+                    for nuscenes, sample_token is saved in it.
+            }
+        """
+
+        batch_anchors = example["anchors"]
+        rets = []
+        for task_id, preds_dict in enumerate(preds_dicts):
+            rets.append(
+                self.get_task_detections_fsaf(task_id, example, preds_dict, test_cfg)
+            )
+
+        num_samples = len(rets[0])
+        ret_list = []
+        for i in range(num_samples):
+            ret = {}
+            for k in rets[0][i].keys():
+                if k in ["box3d_lidar", "scores"]:
+                    ret[k] = torch.cat([ret[i][k] for ret in rets])
+
+                    # try:
+                    #     ret[k] = torch.cat([ret[i][k] for ret in rets])
+                    # except:
+                    #     # pdb.set_trace()
+                elif k in ["label_preds"]:
+                    flag = 0
+                    for j, num_class in enumerate(self.num_classes):
+                        rets[j][i][k] += flag
+                        flag += num_class
+                    ret[k] = torch.cat([ret[i][k] for ret in rets])
+                elif k == "metadata":
+                    # metadata
+                    ret[k] = rets[0][i][k]
+            ret_list.append(ret)
+        return ret_list
+
 
     def get_task_detections(
         self,
@@ -973,6 +1033,7 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
                 ):
                     self._nms_class_agnostic = False
                     if self._nms_class_agnostic:
+
                         class_scores = total_scores.view(
                             feature_map_size_prod, -1, self.num_classes[task_id]
                         )[..., class_idx]
@@ -1158,6 +1219,349 @@ class MultiGroupHeadOHS_SPLIT(nn.Module):
 
             predictions_dicts.append(predictions_dict)
 
+        # pdb.set_trace()
         return predictions_dicts
 
+    def get_task_detections_fsaf_single(self, box_preds, cls_preds, dir_preds, features, a_mask, meta, feature_map_size_prod, dtype,
+                       device, num_class_with_bg, post_center_range, predictions_dicts, points,test_cfg=None):
+        if a_mask is not None:
+            box_preds = box_preds[a_mask]
+            cls_preds = cls_preds[a_mask]
+        box_preds = box_preds.float()
+        cls_preds = cls_preds.float()
 
+        if self.use_direction_classifier and (dir_preds is not None):
+            if a_mask is not None:
+                dir_preds = dir_preds[a_mask]
+            dir_labels = torch.max(dir_preds, dim=-1)[1]
+        if self.encode_background_as_zeros:
+            # this don't support softmax
+            assert self.use_sigmoid_score is True
+            total_scores = torch.sigmoid(cls_preds)
+        else:
+            # encode background as first element in one-hot vector
+            if self.use_sigmoid_score:
+                total_scores = torch.sigmoid(cls_preds)[..., 1:]
+            else:
+                total_scores = F.softmax(cls_preds, dim=-1)[..., 1:]
+
+        # Apply NMS in birdeye view
+        if test_cfg.nms.use_rotate_nms:
+            nms_func = box_torch_ops.rotate_nms
+        else:
+            nms_func = box_torch_ops.nms
+        if test_cfg.nms.use_multi_class_nms:
+            # Currently not functional if multiclass_nms need to declare a few more variables (target assigner)
+            assert self.encode_background_as_zeros is True
+            boxes_for_nms = box_preds[:, [0, 1, 3, 4, 6]]
+            if not test_cfg.nms.use_rotate_nms:
+                box_preds_corners = box_torch_ops.center_to_corner_box2d(
+                    boxes_for_nms[:, :2], boxes_for_nms[:, 2:4],
+                    boxes_for_nms[:, 4])
+                boxes_for_nms = box_torch_ops.corner_to_standup_nd(
+                    box_preds_corners)
+
+            selected_boxes, selected_labels, selected_scores = [], [], []
+            selected_dir_labels = []
+
+            boxes = boxes_for_nms
+            selected_per_class = []
+            score_threshs = [test_cfg.score_threshold]*num_class_with_bg  # self._nms_score_thresholds
+            pre_max_sizes = [test_cfg.nms.nms_pre_max_size]*num_class_with_bg  # self._nms_pre_max_sizes
+            post_max_sizes = [test_cfg.nms.nms_post_max_size]*num_class_with_bg  # self._nms_post_max_sizes
+            iou_thresholds = [test_cfg.nms.nms_iou_thresholds]*num_class_with_bg  # self._nms_iou_thresholds
+            for class_idx, score_thresh, pre_ms, post_ms, iou_th in zip(
+                    range(num_class_with_bg),
+                    score_threshs,
+                    pre_max_sizes, post_max_sizes, iou_thresholds):
+                if test_cfg.nms.use_multi_class_nms:
+                    class_scores = total_scores.view(
+                        feature_map_size_prod, -1,
+                        num_class_with_bg)[..., class_idx]
+                    class_scores = class_scores.contiguous().view(-1)
+                    class_boxes_nms = boxes.view(-1,
+                                                 boxes_for_nms.shape[-1])
+                    class_boxes = box_preds
+                    class_dir_labels = dir_labels
+                else:
+                    anchors_range = self.target_assigner.anchors_range(class_idx) # not entered
+                    class_scores = total_scores.view(
+                        -1,
+                        num_class_with_bg)[anchors_range[0]:anchors_range[1], class_idx]
+                    class_boxes_nms = boxes.view(-1,
+                                                 boxes_for_nms.shape[-1])[anchors_range[0]:anchors_range[1], :]
+                    class_scores = class_scores.contiguous().view(-1)
+                    class_boxes_nms = class_boxes_nms.contiguous().view(
+                        -1, boxes_for_nms.shape[-1])
+                    class_boxes = box_preds.view(-1,
+                                                 box_preds.shape[-1])[anchors_range[0]:anchors_range[1], :]
+                    class_boxes = class_boxes.contiguous().view(
+                        -1, box_preds.shape[-1])
+                    if self.use_direction_classifier and (dir_preds is not None):
+                        class_dir_labels = dir_labels.view(-1)[anchors_range[0]:anchors_range[1]]
+                        class_dir_labels = class_dir_labels.contiguous(
+                        ).view(-1)
+                if score_thresh > 0.0:
+                    class_scores_keep = class_scores >= score_thresh
+                    if class_scores_keep.shape[0] == 0:
+                        selected_per_class.append(None)
+                        continue
+                    class_scores = class_scores[class_scores_keep]
+                if class_scores.shape[0] != 0:
+                    if score_thresh > 0.0:
+                        class_boxes_nms = class_boxes_nms[
+                            class_scores_keep]
+                        class_boxes = class_boxes[class_scores_keep]
+                        class_dir_labels = class_dir_labels[
+                            class_scores_keep]
+                    keep = nms_func(class_boxes_nms, class_scores, pre_ms,
+                                    post_ms, iou_th)
+                    if keep.shape[0] != 0:
+                        selected_per_class.append(keep)
+                    else:
+                        selected_per_class.append(None)
+                else:
+                    selected_per_class.append(None)
+                selected = selected_per_class[-1]
+
+                if selected is not None:
+                    selected_boxes.append(class_boxes[selected])
+                    selected_labels.append(
+                        torch.full([class_boxes[selected].shape[0]],
+                                   class_idx,
+                                   dtype=torch.int64,
+                                   device=box_preds.device))
+                    if self.use_direction_classifier and (dir_preds is not None):
+                        selected_dir_labels.append(
+                            class_dir_labels[selected])
+                    selected_scores.append(class_scores[selected])
+            selected_boxes = torch.cat(selected_boxes, dim=0)
+            selected_labels = torch.cat(selected_labels, dim=0)
+            selected_scores = torch.cat(selected_scores, dim=0)
+            if self.use_direction_classifier and (dir_preds is not None):
+                selected_dir_labels = torch.cat(selected_dir_labels, dim=0)
+        else:
+            # get highest score per prediction, than apply nms
+            # to remove overlapped box.
+            if num_class_with_bg == 1:
+                top_scores = total_scores.squeeze(-1)
+                top_labels = torch.zeros(
+                    total_scores.shape[0],
+                    device=total_scores.device,
+                    dtype=torch.long)
+            else:
+                top_scores, top_labels = torch.max(
+                    total_scores, dim=-1)
+            if test_cfg.score_threshold > 0.0:
+                top_scores_keep = top_scores >= test_cfg.score_threshold
+                top_scores = top_scores.masked_select(top_scores_keep)
+
+            if top_scores.shape[0] != 0:
+                if test_cfg.score_threshold > 0.0:
+                    box_preds = box_preds[top_scores_keep]
+                    if self.use_direction_classifier and (dir_preds is not None):
+                        dir_labels = dir_labels[top_scores_keep]
+                    top_labels = top_labels[top_scores_keep]
+
+                boxes_for_nms = box_preds[:, [0, 1, 3, 4, 6]]
+                if not test_cfg.nms.use_rotate_nms:
+                    box_preds_corners = box_torch_ops.center_to_corner_box2d(
+                        boxes_for_nms[:, :2], boxes_for_nms[:, 2:4],
+                        boxes_for_nms[:, 4])
+                    boxes_for_nms = box_torch_ops.corner_to_standup_nd(
+                        box_preds_corners)
+                # the nms in 3d detection just remove overlap boxes.
+                selected = nms_func(
+                    boxes_for_nms,
+                    top_scores,
+                    pre_max_size=test_cfg.nms.nms_pre_max_size,
+                    post_max_size=test_cfg.nms.nms_post_max_size,
+                    iou_threshold=test_cfg.nms.nms_iou_threshold,
+                )
+            else:
+                selected = []
+            # if selected is not None:
+            selected_boxes = box_preds[selected]
+            if self.use_direction_classifier and (dir_preds is not None):
+                selected_dir_labels = dir_labels[selected]
+            selected_labels = top_labels[selected]
+            selected_scores = top_scores[selected]
+
+        # finally generate predictions.
+        if selected_boxes.shape[0] != 0:
+            box_preds = selected_boxes
+            scores = selected_scores
+            label_preds = selected_labels
+            yaw = box_preds[..., 6]
+            if self.use_direction_classifier and (dir_preds is not None):
+                dir_labels = selected_dir_labels
+                period = (2 * np.pi / self.num_direction_bins)
+                # dir_rot = box_torch_ops.limit_period(S
+                #     box_preds[..., 6] - self.dir_offset,
+                #     self._dir_limit_offset, period)
+                dir_rot = ohs_helper.limit_period(
+                    box_preds[..., -1] - self.direction_offset,  # changed for velocity
+                    0, 2 * np.pi)
+                yaw = dir_rot + self.direction_offset + period * dir_labels
+
+            #  box_preds_vel_rot = torch.cat((box_preds[..., -3:-1], yaw), -1).type(dtype=box_preds.dtype)  #TODO Add velocity to predictions, for now it is 0
+
+            #   box_preds_vel_rot = torch.stack(torch.distributions.utils.broadcast_all(0, 0, yaw),-1).type(dtype=box_preds.dtype)  # TODO Add velocity to predictions, for now it is 0
+            box_preds = torch.cat((box_preds[..., :-1], yaw.view(-1, 1)), -1)  # Changed from 6 to -1 to add velocity
+
+            final_box_preds = box_preds
+            final_scores = scores
+            final_labels = label_preds
+            if post_center_range is not None:
+                mask = (final_box_preds[:, :3] >=
+                        post_center_range[:3]).all(1)
+                mask &= (final_box_preds[:, :3] <=
+                         post_center_range[3:]).all(1)
+                predictions_dict = {
+                    "box3d_lidar": final_box_preds[mask],
+                    "scores": final_scores[mask],
+                    "label_preds": label_preds[mask],
+                    "metadata": meta,
+                }
+            else:
+                predictions_dict = {
+                    "box3d_lidar": final_box_preds,
+                    "scores": final_scores,
+                    "label_preds": label_preds,
+                    "metadata": meta,
+                }
+        else:
+            predictions_dict = {
+                "box3d_lidar":
+                    torch.zeros([0, box_preds.shape[-1]],  # Added + 2 to take care of velocity # removed since it casued problems
+                                dtype=dtype,
+                                device=device),
+                "scores":
+                    torch.zeros([0], dtype=dtype, device=device),
+                "label_preds":
+                    torch.zeros([0], dtype=top_labels.dtype, device=device),
+                "metadata":
+                    meta,
+            }
+        '''
+        for i in range(8000):
+            if not os.path.exists('npys/total_scores_%i.npy'%i):
+                np.save('npys/total_scores_%i.npy'%i, total_scores.cpu().numpy())
+                try:
+                    np.save('npys/final_box_preds_%i.npy'%i, final_box_preds.cpu().numpy())
+                    np.save('npys/final_scores_%i.npy'%i, final_scores.cpu().numpy())
+                    np.save('npys/label_preds_%i.npy'%i, label_preds.cpu().numpy())
+                except:
+                    shabi=1
+                break
+        '''
+        predictions_dicts.append(predictions_dict)
+
+    def get_task_detections_fsaf(self, task_id, example, preds_dict, test_cfg):
+        """
+        start with v1.6.0, this function don't contain any kitti-specific code.
+        Returns:
+            predict: list of pred_dict.
+            pred_dict: {
+                box3d_lidar: [N, 7] 3d box.
+                scores: [N]
+                label_preds: [N]
+                metadata: meta-data which contains dataset-specific information.
+                    for kitti, it contains image idx (label idx),
+                    for nuscenes, sample_token is saved in it.
+            }
+        """
+        meta_list = example["metadata"]
+        batch_size = len(meta_list)
+        t = time.time()
+        num_class_with_bg = self.num_classes[task_id]
+        if not self.encode_background_as_zeros:
+            num_class_with_bg = self.num_classes[task_id] + 1
+        predictions_dicts = []
+        post_center_range = None
+        if "post_center_range" in self.__dir__() and len(test_cfg.post_center_limit_range) > 0:
+            post_center_range = torch.tensor(
+                test_cfg.post_center_limit_range,
+                dtype=torch.float32,
+                device=torch.cuda.current_device()).float()
+        if (self.fsaf > 0) and (self.eval_fsaf > 0):  # currently only support one level
+            fsaf_batch_cls_preds, fsaf_batch_box_preds = preds_dict['fsaf'][0][0], preds_dict['fsaf'][1][0]
+            points = ohs_helper.generate_points(fsaf_batch_cls_preds.shape[-2:], np.asarray(self.fsaf_cfg.range),
+                                                fsaf_batch_cls_preds.device)
+
+            fsaf_batch_box_preds = fsaf_batch_box_preds.permute(0, 2, 3, 1)
+            fsaf_batch_cls_preds = fsaf_batch_cls_preds.permute(0, 2, 3, 1)
+            fsaf_batch_box_preds = fsaf_batch_box_preds.view(batch_size, -1, fsaf_batch_box_preds.shape[-1])
+            fsaf_batch_cls_preds = fsaf_batch_cls_preds.view(batch_size, -1, num_class_with_bg)
+            if self.use_iou_branch:
+                fsaf_batch_iou_preds = preds_dict['fsaf'][2][0]
+
+            '''
+            if self.FSAFLoss.cfg.centerness:
+                fsaf_batch_centerness_preds = preds_dict['fsaf'][3][0]
+                fsaf_batch_centerness_preds = fsaf_batch_centerness_preds.permute(0, 2, 3, 1)
+                fsaf_batch_centerness_preds = fsaf_batch_centerness_preds.view(batch_size, -1, fsaf_batch_centerness_preds.shape[-1])
+                fsaf_batch_centerness_preds = torch.exp(-0.2*fsaf_batch_centerness_preds.norm(dim=-1, keepdim=True))
+            if fsaf_batch_iou_preds is not None:
+                fsaf_batch_iou_preds = fsaf_batch_iou_preds.permute(0, 2, 3, 1)
+                fsaf_batch_iou_preds = fsaf_batch_iou_preds.view(batch_size, -1, fsaf_batch_iou_preds.shape[-1])
+                fsaf_batch_cls_preds *= fsaf_batch_iou_preds
+            '''
+            if 'center' in self.fsaf_cfg.loc_type:
+                # centers_2d = ((batch_box_preds[:, :, :2] - 0.5)*batch_box_preds[:, :, 3:5]).contiguous().view(-1, 1, 2)
+                if self.fsaf_cfg.rot_type == 'cos_sin':
+                    '''
+                    rot_mat_T = torch.stack(
+                         [tstack([batch_box_preds[:, :, 6].contiguous().view(-1), -batch_box_preds[:, :, 7].contiguous().view(-1)]),
+                          tstack([batch_box_preds[:, :, 7].contiguous().view(-1), batch_box_preds[:, :, 6].contiguous().view(-1)])])
+                    centers_2d = torch.einsum('aij,jka->aik', (centers_2d, rot_mat_T)).view(batch_size, -1, 2)
+                    '''
+                    fsaf_batch_box_preds[:, :, -2] = torch.atan2(fsaf_batch_box_preds[:, :, -1],
+                                                                 fsaf_batch_box_preds[:, :, -2])
+                    fsaf_batch_box_preds = fsaf_batch_box_preds[:, :, :-1]
+                if self.fsaf_cfg.rot_type == 'softbin_cos_sin':
+                    fsaf_batch_box_preds = fsaf_batch_box_preds[:, :, :-1]
+                # else:
+                # batch_box_preds[:, :, :2] = points[:, :2] - centers_2d
+                fsaf_batch_box_preds[:, :, :2] += points[:, :2]
+
+                fsaf_batch_box_preds[:, :, 3:6] = torch.exp(fsaf_batch_box_preds[:, :, 3:6])
+                if 'bottom' in self.fsaf_cfg.h_loc_type:
+                    fsaf_batch_box_preds[:, :, 2] += 0.5 * fsaf_batch_box_preds[:, :, 5]
+            else:
+                print("We should not be here")
+                fsaf_batch_box_preds *= self.fsaf_cfg.norm_factor
+                centers_2d = 0.5 * torch.cat([-fsaf_batch_box_preds[:, :, 0:1] + fsaf_batch_box_preds[:, :, 3:4],
+                                              fsaf_batch_box_preds[:, :, 1:2] - fsaf_batch_box_preds[:, :, 4:5]],
+                                             -1).reshape(-1, 1, 2)
+                centers_2d = box_torch_ops.rotation_2d(centers_2d, fsaf_batch_box_preds[:, :, -1].reshape(-1)).reshape(
+                    batch_size, -1, 2)
+                centers_2d += points[:, :2]
+                dims = fsaf_batch_box_preds[:, :, :3] + fsaf_batch_box_preds[:, :, 3:6]
+                fsaf_batch_box_preds[:, :, :2] = centers_2d
+                fsaf_batch_box_preds[:, :, 2] = 0.5 * (
+                        points[:, 2] - fsaf_batch_box_preds[:, :, 2] + points[:, 2] + fsaf_batch_box_preds[:, :, 5])
+                fsaf_batch_box_preds[:, :, 3:6] = dims
+            # batch_box_preds[:, :, 6] = 0
+        if self.eval_fsaf == 1:
+            batch_anchors_mask = [None] * batch_size
+            num_anchors_per_location = 1
+            # print('box_preds', batch_box_preds)
+            batch_box_preds = fsaf_batch_box_preds
+            batch_cls_preds = fsaf_batch_cls_preds
+            '''
+            if self.FSAFLoss.cfg.centerness:
+                batch_centerness_preds = fsaf_batch_centerness_preds
+            '''
+            batch_dir_preds = [None] * batch_size
+            feature_map_size_prod = batch_box_preds.shape[1]
+
+        batch_features = [None] * batch_size
+        points = None
+        for box_preds, cls_preds, dir_preds, features, a_mask, meta in zip(
+                batch_box_preds, batch_cls_preds, batch_dir_preds,
+                batch_features, batch_anchors_mask, meta_list):
+            self.get_task_detections_fsaf_single(box_preds, cls_preds, dir_preds, features, a_mask, meta, feature_map_size_prod,
+                                batch_box_preds.dtype, batch_box_preds.device, num_class_with_bg, post_center_range,
+                                predictions_dicts, points, test_cfg=test_cfg)
+        return predictions_dicts

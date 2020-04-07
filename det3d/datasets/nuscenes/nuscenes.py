@@ -8,6 +8,7 @@ import numpy as np
 from functools import reduce
 from pathlib import Path
 from copy import deepcopy
+import pdb
 
 from nuscenes.nuscenes import NuScenes
 from nuscenes.eval.detection.config import config_factory
@@ -177,6 +178,7 @@ class NuScenesDataset(PointCloudDataset):
         return self.get_sensor_data(idx)
 
     def evaluation(self, detections, output_dir=None, testset=False):
+        # pdb.set_trace()
         version = self.version
         eval_set_map = {
             "v1.0-mini": "mini_val",
@@ -216,9 +218,11 @@ class NuScenesDataset(PointCloudDataset):
                 mapped_class_names.append(n)
 
         for det in dets:
+           #  pdb.set_trace()
             annos = []
             boxes = _second_det_to_nusc_box(det)
             boxes = _lidar_nusc_box_to_global(nusc, boxes, det["metadata"]["token"])
+           #  pdb.set_trace()
             for i, box in enumerate(boxes):
                 name = mapped_class_names[box.label]
                 if np.sqrt(box.velocity[0] ** 2 + box.velocity[1] ** 2) > 0.2:

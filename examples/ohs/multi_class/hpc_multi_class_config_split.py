@@ -10,6 +10,8 @@ norm_cfg = None
 tasks = [
     # dict(num_class=1, class_names=["car"],),
     dict(num_class=2, class_names=["pedestrian", "traffic_cone"]),
+#dict(num_class=2, class_names=["truck", "construction_vehicle"]),
+
 ]
 
 class_names = list(itertools.chain(*[t["class_names"] for t in tasks]))
@@ -28,7 +30,7 @@ target_assigner = dict(
         #     unmatched_threshold=0.45,
         #     class_name="car",
         # ),
-
+        #
         dict(
             type="anchor_generator_range",
             sizes=[0.67, 0.73, 1.77],
@@ -49,6 +51,28 @@ target_assigner = dict(
             unmatched_threshold=0.4,
             class_name="traffic_cone",
         ),
+
+        # dict(
+        #     type="anchor_generator_range",
+        #     sizes=[2.51, 6.93, 2.84],
+        #     anchor_ranges=[-50.4, -50.4, -0.40, 50.4, 50.4, -0.40],
+        #     rotations=[0, 1.57],
+        #     velocities=[0, 0],
+        #     matched_threshold=0.55,
+        #     unmatched_threshold=0.4,
+        #     class_name="truck",
+        # ),
+        #
+        # dict(
+        #     type="anchor_generator_range",
+        #     sizes=[2.85, 6.37, 3.19],
+        #     anchor_ranges=[-50.4, -50.4, -0.225, 50.4, 50.4, -0.225],
+        #     rotations=[0, 1.57],
+        #     velocities=[0, 0],
+        #     matched_threshold=0.5,
+        #     unmatched_threshold=0.35,
+        #     class_name="construction_vehicle",
+        # ),
 
     ],
     sample_positive_fraction=-1,
@@ -215,14 +239,19 @@ db_sampler = dict(
     db_info_path="data/Nuscenes/v1.0-trainval/dbinfos_train_10sweeps_withvelo.pkl",
     sample_groups=[
         # dict(car=15,),
-        dict(traffic_cone=6),
+        dict(traffic_cone=16),
         dict(pedestrian=14),
+        # dict(truck=10,),
+        # dict(construction_vehicle=10,),
+
     ],
     db_prep_steps=[
         dict(filter_by_min_num_points=dict(
-            car=5,
+            # car=5,
             pedestrian=5,
             traffic_cone=5,
+            # truck=5,
+            # construction_vehicle=5,
         )),
         dict(filter_by_difficulty=[-1],),
     ],
@@ -360,7 +389,7 @@ log_config = dict(
 )
 # yapf:enable
 # runtime settings
-total_epochs = 16
+total_epochs = 30
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"

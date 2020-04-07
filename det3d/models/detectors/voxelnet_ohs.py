@@ -47,7 +47,7 @@ class VoxelNet_OHS(SingleStageDetector):
             self.fsaf_cfg = self.ohs.fsaf_module
             self.class_names = list(itertools.chain(*[t["class_names"] for t in self.fsaf_cfg.tasks]))
             self.num_class = len(self.class_names)
-            self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class+1,
+            self.fsaf_loss = RefineMultiBoxFSAFLoss(self.fsaf_cfg, self.num_class,
                                                    pc_range=self.fsaf_cfg.range,
                                                    encode_background_as_zeros=self.encode_background_as_zeros,
                                                    use_iou_branch=self.use_iou_branch)
@@ -147,7 +147,12 @@ class VoxelNet_OHS(SingleStageDetector):
             input_shape=example["shape"][0],
         )
         if self.fsaf > 0 and return_loss:
-            data["fsaf_targets"] = example["fsaf_targets"]
+            if 'fsaf_targets' in example:
+                data["fsaf_targets"] = example["fsaf_targets"]
+            else:
+                data["fsaf_mg_targets"] = example["fsaf_mg_targets"]
+
+
 
         preds_dict = self.extract_feat_voxelDrop(data)
 
@@ -157,10 +162,12 @@ class VoxelNet_OHS(SingleStageDetector):
                 preds = self.bbox_head(preds_dict)
 
                 if return_loss:
-                    return self.bbox_head.loss(example, preds)
+                    #return self.bbox_head.loss(example, preds)
+                    return self.bbox_head.loss_mg_fsaf(example, preds)
                 else:
                     with torch.no_grad():
-                        return self.predict(example, preds) # need to replace with mg_split version, to add multiclass decide how to incorporate the loss
+                        # return self.predict(example, preds)
+                        return self.bbox_head.predict_mg_fsaf(example, preds, test_cfg=self.test_cfg) # ToDo need to replace with mg_split version, to add multiclass decide how to incorporate the loss
 
             else: #FSAF
                 if return_loss:

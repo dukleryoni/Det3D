@@ -462,7 +462,13 @@ class AssignTarget(object):
 
 
             if self.ohs:
-                example["fsaf_targets"]=(np.concatenate([gt_dict["gt_boxes"],np.expand_dims(gt_dict["gt_classes"],-1)], -1)).astype("float32")
+                if isinstance(gt_dict["gt_boxes"], list) and len(gt_dict['gt_boxes']) > 1:
+                    squeezed_mg_targets = [
+                        (np.concatenate([gt_box, np.expand_dims(gt_class, -1)], -1)).astype("float32")
+                        for gt_box, gt_class in zip(gt_dict['gt_boxes'], gt_dict['gt_classes'])]
+                    example["fsaf_mg_targets"] = [np.expand_dims(targets,0) for targets in squeezed_mg_targets]
+                else:
+                    example["fsaf_targets"]=(np.concatenate([gt_dict["gt_boxes"],np.expand_dims(gt_dict["gt_classes"],-1)], -1)).astype("float32")
               #  example["grid_size"] = grid_size
 
             example.update(

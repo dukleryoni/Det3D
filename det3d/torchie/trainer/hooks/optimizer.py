@@ -18,3 +18,5 @@ class OptimizerHook(Hook):
         if self.grad_clip is not None:
             self.clip_grads(trainer.model.parameters())
         trainer.optimizer.step()
+        # print(trainer.outputs["loss"].grad)
+        # print("was here at after_train")

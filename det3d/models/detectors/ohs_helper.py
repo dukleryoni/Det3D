@@ -336,8 +336,8 @@ def coor_batch(coors):
 
 
 def get_gt_masks(data,range):
+    # ToDO incorporate multi-class training for this
     '''
-
     Args:
         data: includes ground truth targets, coordinates, and things like input features shape
         range: the point cloud range

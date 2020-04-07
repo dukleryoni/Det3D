@@ -119,6 +119,10 @@ def collate_kitti(batch_list, samples_per_gpu=1):
             ret[key] = elems
         elif key in ["fsaf_targets"]:
             ret[key] =[torch.tensor(elem) for elem in elems]
+
+        elif key in ["fsaf_mg_targets"]: # This is a nested list: list (batch) of a list (tasks)
+            ret[key] = [[torch.tensor(elem_batch) for elem_batch in elem] for elem in elems]
+
         elif key == "calib":
             ret[key] = {}
             for elem in elems:

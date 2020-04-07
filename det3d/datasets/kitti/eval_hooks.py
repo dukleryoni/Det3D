@@ -104,6 +104,8 @@ class KittiEvalmAPHookV2(Hook):
         """
         prepare dataloader
         """
+        import pdb
+        # pdb.set_trace()
         data_loader = datasets.loader.build_dataloader(
             self.dataset, batch_size=8, workers_per_gpu=4, dist=False, shuffle=False
         )

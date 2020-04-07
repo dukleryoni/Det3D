@@ -45,6 +45,10 @@ def example_convert_to_torch(example, dtype=torch.float32, device=None) -> dict:
         elif k in ["fsaf_targets"]:
             # slow when directly provide fp32 data with dtype=torch.half
             example_torch[k] = [elem.to(device, non_blocking=True) for elem in v]
+
+        elif k in ["fsaf_mg_targets"]:
+            # slow when directly provide fp32 data with dtype=torch.half
+            example_torch[k] = [[elem.to(device, non_blocking=True) for elem in elem_batch] for elem_batch in v] # ToDo make sure this helps
             # example_torch[k] = torch.tensor(v,
             #                                 dtype=torch.float32,
             #
@@ -94,6 +98,10 @@ def example_to_device(example, device=None, non_blocking=False) -> dict:
     for k, v in example.items():
         if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "fsaf_targets"]:
             example_torch[k] = [res.to(device, non_blocking=non_blocking) for res in v]
+
+        elif k in ["fsaf_mg_targets"]:
+            example_torch[k] = [[res.to(device, non_blocking=non_blocking) for res in batch_v] for batch_v in v]
+
         elif k in [
             "voxels",
             "bev_map",
@@ -149,7 +157,6 @@ def parse_second_losses(losses):
 
 
 def batch_processor(model, data, train_mode, **kwargs):
-
     if "local_rank" in kwargs:
         device = torch.device(kwargs["local_rank"])
     else:
@@ -321,9 +328,13 @@ def train_detector(model, dataset, cfg, distributed=False, validate=False, logge
 
     logger.info(f"model structure: {model}")
 
+    mini_epoch = None
+    if hasattr(cfg, 'mini_epoch'):
+        mini_epoch = cfg.mini_epoch
+
     trainer = Trainer(
-        model, batch_processor, optimizer, lr_scheduler, cfg.work_dir, cfg.log_level
-    )
+        model, batch_processor, optimizer, lr_scheduler, cfg.work_dir, cfg.log_level,
+    mini_epoch=mini_epoch)
 
     if distributed:
         optimizer_config = DistOptimizerHook(**cfg.optimizer_config)
