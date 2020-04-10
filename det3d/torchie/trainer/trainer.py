@@ -538,8 +538,14 @@ class Trainer(object):
         )
         self.logger.info("workflow: %s, max: %d epochs", workflow, max_epochs)
         self.call_hook("before_run")
-
+        validation_dropout_rates=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0] # Todo remove this
+        print("NOTE: VoxelDrop evaluation run")
         while self.epoch < max_epochs:
+            try:
+                self.model.train_cfg.voxel_drop.drop_rate = validation_dropout_rates[self.epoch] # Todo remove this hack
+            except:
+                self.model.module.train_cfg.voxel_drop.drop_rate = validation_dropout_rates[self.epoch] # Todo remove this hack
+
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):

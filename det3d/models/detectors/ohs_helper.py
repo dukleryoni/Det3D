@@ -335,7 +335,7 @@ def coor_batch(coors):
     return [coors[mask] for mask in masks]
 
 
-def get_gt_masks(data,range):
+def get_gt_masks(data,range, multi_class=False):
     # ToDO incorporate multi-class training for this
     '''
     Args:
@@ -346,6 +346,8 @@ def get_gt_masks(data,range):
         A mask for the coordinates tensor that selects the voxels that contain the ground truth
 
     '''
+    multi_class= True # Todo make this better
+
     pc_range = torch.FloatTensor(range)
     voxel_dims = pc_range[3:] - pc_range[:3]
     voxel_dims /= torch.FloatTensor(data["input_shape"])  # fix for specifics
@@ -355,8 +357,18 @@ def get_gt_masks(data,range):
     coors_batch = coor_batch(coors)
     batch_gt_masks = []
     for i, coor in enumerate(coors_batch):
-        gt_boxes = data["fsaf_targets"][i][..., :-1]  # Drop class label
-        gt_boxes = gt_boxes.squeeze(0)
+
+        if multi_class:
+            if 'gt_boxes' in data['annos'][0].keys(): # Training mode
+                gt_boxes = data['annos'][i]['gt_boxes']
+                gt_boxes = np.concatenate(gt_boxes) # concatenate over classes
+            else: # validation
+                gt_boxes = data['annos'][i]['boxes']
+
+            gt_boxes = torch.from_numpy(gt_boxes).float().to(coor.device)
+        else:
+            gt_boxes = data["fsaf_targets"][i][..., :-1]  # Drop class label
+            gt_boxes = gt_boxes.squeeze(0)
         gt_centers = gt_boxes[..., :3]
         gt_dims = gt_boxes[..., 3:6]
         gt_yaw = gt_boxes[..., -1]

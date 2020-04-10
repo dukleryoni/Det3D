@@ -188,7 +188,14 @@ assigner = dict(
 )
 
 
-train_cfg = dict(assigner=assigner)
+train_cfg = dict(assigner=assigner, # Todo Added VoxelDrop in the train_cfg (check if this leads to errors
+                 voxel_drop=dict(
+                     gt_drop=True,
+                     general_voxel_drop=False,
+                     drop_rate=0.27,
+                     range=[-50.4, -50.4, -5.0, 50.4, 50.4, 3.0],
+                 ),
+)
 
 test_cfg = dict(
     nms=dict(

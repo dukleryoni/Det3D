@@ -84,27 +84,29 @@ class VoxelNet_OHS(SingleStageDetector):
                 x['occupancy'] = occupancy.byte()
         return x
 
-    def extract_feat_voxelDrop(self, data,):
+    def extract_feat_voxelDrop(self, data,drop_rate=None):
         input_features = self.reader(data["features"], data["num_voxels"])
-        use_voxel_drop = False
 
-        if hasattr(self.train_cfg, "gt_drop") or hasattr(self.train_cfg, "general_voxel_drop"):
-            use_voxel_drop = self.train_cfg.gt_drop or self.train_cfg.general_voxel_drop
+        use_voxel_drop=False
+        if hasattr(self.train_cfg, "voxel_drop") and self.train_cfg.voxel_drop is not None:
+            use_voxel_drop = True
 
         if use_voxel_drop:
             # General input VoxelDrop
-            voxel_general_dropout = self.train_cfg.general_voxel_drop
-            p_dropout = self.train_cfg.drop_rate
-            if voxel_general_dropout:
+            voxel_general_dropout = self.train_cfg.voxel_drop.general_voxel_drop
+            p_dropout = self.train_cfg.voxel_drop.drop_rate
+
+            if drop_rate is not None:
+                p_dropout = drop_rate
+
+            if self.train_cfg.voxel_drop.general_voxel_drop:
                 # This the logical mask of entries we keep (hence 1 - p_dropout)
                 dropout_mask = torch.bernoulli((1 - p_dropout) * torch.ones(len(input_features))).type(torch.bool)
 
-            voxel_gt_dropout = self.train_cfg.gt_drop
-            if voxel_gt_dropout:
-                gt_dropout_masks = ohs_helper.get_gt_masks(data=data, range=self.fsaf_cfg.range)
-                dropout_mask = ohs_helper.get_gt_dropout(drop_rate=p_dropout, features=input_features,
-                                                                  coors=data["coors"],
-                                                                  masks=gt_dropout_masks)
+            # voxel_gt_dropout = self.train_cfg.gt_drop
+            if self.train_cfg.voxel_drop.gt_drop:
+                gt_dropout_masks = ohs_helper.get_gt_masks(data=data, range=self.train_cfg.voxel_drop.range)
+                dropout_mask = ohs_helper.get_gt_dropout(drop_rate=p_dropout, features=input_features, coors=data["coors"], masks=gt_dropout_masks)
 
             input_features = input_features[dropout_mask]
             data["features"] = data["features"][dropout_mask]
@@ -131,7 +133,7 @@ class VoxelNet_OHS(SingleStageDetector):
 
         return x
 
-    def forward(self, example, return_loss=True, **kwargs):
+    def forward(self, example, return_loss=True,drop_rate=None, **kwargs):
         voxels = example["voxels"]
         coordinates = example["coordinates"]
         num_points_in_voxel = example["num_points"]
@@ -145,6 +147,7 @@ class VoxelNet_OHS(SingleStageDetector):
             coors=coordinates,
             batch_size=batch_size,
             input_shape=example["shape"][0],
+            annos= example["annos"], # Added annotations in forward training for VoxelDrop
         )
         if self.fsaf > 0 and return_loss:
             if 'fsaf_targets' in example:
@@ -152,13 +155,11 @@ class VoxelNet_OHS(SingleStageDetector):
             else:
                 data["fsaf_mg_targets"] = example["fsaf_mg_targets"]
 
-
-
-        preds_dict = self.extract_feat_voxelDrop(data)
+        preds_dict = self.extract_feat_voxelDrop(data, drop_rate)
 
         if self.fsaf  > 0:
             # mg_Head split
-            if hasattr(self.bbox_head, "ohs"): # TODO go over this and see what would be the cleanest way to go
+            if hasattr(self.bbox_head, "ohs"):
                 preds = self.bbox_head(preds_dict)
 
                 if return_loss:
@@ -166,10 +167,9 @@ class VoxelNet_OHS(SingleStageDetector):
                     return self.bbox_head.loss_mg_fsaf(example, preds)
                 else:
                     with torch.no_grad():
-                        # return self.predict(example, preds)
-                        return self.bbox_head.predict_mg_fsaf(example, preds, test_cfg=self.test_cfg) # ToDo need to replace with mg_split version, to add multiclass decide how to incorporate the loss
+                        return self.bbox_head.predict_mg_fsaf(example, preds, test_cfg=self.test_cfg)
 
-            else: #FSAF
+            else: # single class fsaf
                 if return_loss:
                     return self.loss(example, preds_dict)
 
@@ -177,7 +177,7 @@ class VoxelNet_OHS(SingleStageDetector):
                     with torch.no_grad():
                         return self.predict(example, preds_dict)
 
-        else: #regular
+        else: # Det3D second/cfgs
             preds = self.bbox_head(preds_dict)
             if return_loss:
                 return self.bbox_head.loss(example, preds)

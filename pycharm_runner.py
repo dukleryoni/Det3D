@@ -63,10 +63,10 @@ args = parser.parse_args("a  --gpus=1 --work_dir experiments/nusc_second".split(
 
 #args.config="examples/second/configs/hpc_ohs_nusc_car_vfev3_spmiddlefhd_rpn1_mghead_syncbn.py"
 # args.config="examples/ohs/multi_class/multi_class_config_split.py"
-args.config="examples/ohs/multi_class/multi_class_config_split.py"
+# args.config="examples/ohs/multi_class/multi_class_config_split.py"
 
 
-# args.config="examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py"
+args.config="examples/cbgs/configs/nusc_all_vfev3_spmiddleresnetfhd_rpn2_mghead_syncbn.py"
 #args.config="examples/cbgs/configs/cbgs_car_only_try.py"
 
 

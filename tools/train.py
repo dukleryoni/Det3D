@@ -78,18 +78,18 @@ def main():
     cfg.local_rank = args.local_rank
 
     # voxel_drop
-    cfg.train_cfg.drop_rate = args.drop_pct / 100.
+    cfg.train_cfg.voxel_drop.drop_rate = args.drop_pct / 100.
 
-    cfg.train_cfg.general_voxel_drop = False
-    cfg.train_cfg.gt_drop = False
+    cfg.train_cfg.voxel_drop.general_voxel_drop = False
+    cfg.train_cfg.voxel_drop.gt_drop = False
 
     if args.voxel_drop:
-        print("Using general voxel drop with drop rate", cfg.train_cfg.drop_rate)
-        cfg.train_cfg.general_voxel_drop= True
+        print("Using general voxel drop with drop rate", cfg.train_cfg.voxel_drop.drop_rate)
+        cfg.train_cfg.voxel_drop.general_voxel_drop= True
 
     if args.gt_drop:
-        print("Using ground truth voxel drop with drop rate", cfg.train_cfg.drop_rate)
-        cfg.train_cfg.gt_drop= True
+        print("Using ground truth voxel drop with drop rate", cfg.train_cfg.voxel_drop.drop_rate)
+        cfg.train_cfg.voxel_drop.gt_drop= True
 
 
 

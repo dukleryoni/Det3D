@@ -201,7 +201,15 @@ assigner = dict(
 )
 
 
-train_cfg = dict(assigner=assigner)
+train_cfg = dict(
+        assigner=assigner,
+        voxel_drop=dict(
+            gt_drop=True,
+            general_voxel_drop=False,
+            drop_rate=0.27,
+            range=[-50.4, -50.4, -5.0, 50.4, 50.4, 3.0],
+        ),
+)
 
 test_cfg = dict(
     nms=dict(
@@ -312,8 +320,8 @@ val_anno = "data/Nuscenes/v1.0-trainval/infos_val_10sweeps_repeat_withvelo.pkl"
 test_anno = None
 
 data = dict(
-    samples_per_gpu=3,
-    workers_per_gpu=1,
+    samples_per_gpu=8,
+    workers_per_gpu=3,
     train=dict(
         type=dataset_type,
         root_path=data_root,
